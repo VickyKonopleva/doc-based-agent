@@ -1,0 +1,31 @@
+# Secrets and local config
+.env
+.env.local
+*.p12
+*.jks
+id_rsa
+
+# Node
+node_modules/
+tools-server/dist/
+tools-server/.cache/
+tools-server/dynamic/*.bak
+npm-debug.log*
+
+# IntelliJ — проектные файлы версионируем, пользовательские нет
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/shelf/
+.idea/dictionaries/
+.idea/httpRequests/
+.idea/dataSources/
+.idea/**/contentModel.xml
+*.iws
+
+# GigaCode local overrides
+.gigacode/settings.local.json
+.gigacode/logs/
+
+# OS
+.DS_Store

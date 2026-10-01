@@ -1,0 +1,34 @@
+{
+  "name": "@ai-agent/tools-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP (stdio) tool server for the doc-based backend-developer agent on GigaCode CLI",
+  "type": "module",
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "bin": {
+    "ai-tools-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "inspect": "npx -y @modelcontextprotocol/inspector node dist/index.js",
+    "clean": "rm -rf dist .cache",
+    "smoke": "npm run build && node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "esbuild": "^0.25.0",
+    "gray-matter": "^4.0.3",
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

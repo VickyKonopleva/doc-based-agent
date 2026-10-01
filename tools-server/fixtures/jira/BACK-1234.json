@@ -1,0 +1,31 @@
+{
+  "key": "BACK-1234",
+  "fields": {
+    "summary": "Добавить ретраи для коллбэков платёжного шлюза",
+    "issuetype": { "name": "Story" },
+    "status": { "name": "In Progress" },
+    "priority": { "name": "Major" },
+    "assignee": { "displayName": "AI Agent" },
+    "reporter": { "displayName": "Пётр Иванов" },
+    "labels": ["payments", "resilience"],
+    "components": [{ "name": "payment-service" }],
+    "fixVersions": [{ "name": "2026.10" }],
+    "description": "Платёжный шлюз периодически отвечает 503 при пиковой нагрузке. Сейчас коллбэк теряется и платёж зависает в статусе PROCESSING.\n\nНужно добавить повторные попытки обработки коллбэка с экспоненциальной задержкой и джиттером, не более 3 попыток. Обработка должна быть идемпотентной по paymentId: повторный коллбэк не меняет уже финализированный платёж.\n\nПосле исчерпания попыток — событие payment.payment.failed.v1 и ERROR в лог.",
+    "customfield_10100": "1. При ответе шлюза 5xx коллбэк повторяется до 3 раз с задержкой 1s, 2s, 4s (+ джиттер).\n2. Повторный коллбэк с тем же paymentId не меняет платёж в терминальном статусе.\n3. После 3 неудач публикуется payment.payment.failed.v1.\n4. Количество попыток видно в метрике payment.callback.retries.",
+    "issuelinks": [
+      {
+        "type": { "outward": "relates to" },
+        "outwardIssue": { "key": "BACK-1180", "fields": { "summary": "Transactional outbox для событий платежа" } }
+      }
+    ],
+    "comment": {
+      "comments": [
+        {
+          "author": { "displayName": "Мария Соколова" },
+          "created": "2026-09-28T10:12:00.000+0300",
+          "body": "Шлюз не гарантирует уникальность callbackId, поэтому идемпотентность строим по paymentId + статусу, а не по идентификатору коллбэка."
+        }
+      ]
+    }
+  }
+}

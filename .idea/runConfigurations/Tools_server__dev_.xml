@@ -1,0 +1,16 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Tools server (dev)" type="js.build_tools.npm" nameIsGenerated="false">
+    <package-json value="$PROJECT_DIR$/tools-server/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="dev" />
+    </scripts>
+    <node-interpreter value="project" />
+    <envs>
+      <env name="TOOLS_SERVER_DEV" value="1" />
+      <env name="LOG_LEVEL" value="debug" />
+      <env name="AI_DOCS_PATH" value="$PROJECT_DIR$/ai-docs" />
+    </envs>
+    <method v="2" />
+  </configuration>
+</component>
