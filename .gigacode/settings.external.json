@@ -1,19 +1,14 @@
 {
   "mcpServers": {
+    "bitbucket": {
+      "httpUrl": "{env:BITBUCKET_MCP_URL}",
+      "timeout": 30000
+    },
     "jira": {
       "httpUrl": "{env:JIRA_MCP_URL}",
       "headers": {
         "Authorization": "{env:JIRA_TOKEN}",
         "JIRA_URL": "{env:JIRA_URL}"
-      },
-      "timeout": 30000,
-      "excludeTools": ["add_comment", "transition_issue", "update_issue", "create_issue"]
-    },
-    "confluence": {
-      "httpUrl": "{env:CONFLUENCE_MCP_URL}",
-      "headers": {
-        "Authorization": "{env:CONFLUENCE_TOKEN}",
-        "CONFLUENCE_URL": "{env:CONFLUENCE_URL}"
       },
       "timeout": 30000
     },
@@ -27,7 +22,7 @@
     }
   },
   "mcp": {
-    "allowed": ["jira", "confluence", "be-tools"]
+    "allowed": ["bitbucket", "jira", "be-tools"]
   },
   "$version": 4
 }

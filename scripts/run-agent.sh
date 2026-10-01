@@ -6,7 +6,7 @@
 #   ./scripts/run-agent.sh BACK-1234 --no-spec      # хотфикс без спецификации
 #
 # Спецификация (PR в репозитории аналитики) — источник требований, тикет —
-# контекст. Поэтому PR обязателен, а отказ от него явный и попадает в MR.
+# контекст. Поэтому PR обязателен, а отказ от него явный и попадает в PR.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,7 +72,7 @@ fi
 if [[ -z "${SERVICES_GIT_BASE:-}" ]]; then
   echo "error: SERVICES_GIT_BASE не задан в .env" >&2
   echo "       Агент сам определяет затронутые сервисы и достраивает адрес из этого префикса." >&2
-  echo "       Пример: SERVICES_GIT_BASE=git@git.company.ru:backend/" >&2
+  echo "       Пример: SERVICES_GIT_BASE=ssh://git@bitbucket.company.ru:7999/be/" >&2
   exit 1
 fi
 

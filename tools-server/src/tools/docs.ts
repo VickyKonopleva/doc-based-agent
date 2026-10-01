@@ -5,14 +5,14 @@ import { z } from "zod";
 import { defineTool, failure, text, type ToolDefinition } from "../lib/types.js";
 
 interface DocFile {
-  /** Path relative to the ai-docs root, e.g. "30-conventions/rest-api.md". */
+  /** Путь относительно корня базы знаний, напр. "30-conventions/rest-api.md". */
   rel: string;
   abs: string;
   data: Record<string, any>;
   body: string;
 }
 
-/** Documents whose frontmatter does not parse, reported instead of hidden. */
+/** Документы с непарсящимся frontmatter: о них сообщаем, а не прячем. */
 const BROKEN: { rel: string; error: string }[] = [];
 
 const CACHE = { root: "", mtime: 0, files: [] as DocFile[] };
@@ -28,7 +28,7 @@ async function walk(dir: string, root: string, acc: string[] = []): Promise<stri
   return acc;
 }
 
-/** The base is external, so "missing" is a configuration problem worth explaining. */
+/** База знаний внешняя, поэтому «не найдена» — это проблема настройки, её надо объяснить. */
 function missingBaseMessage(cfg: { aiDocsPath: string; aiDocsGitUrl: string; aiDocsRef: string }, err: unknown): string {
   const reason = err instanceof Error ? err.message : String(err);
   const lines = [
@@ -58,7 +58,7 @@ async function loadDocs(root: string): Promise<DocFile[]> {
       const parsed = matter(raw);
       files.push({ rel, abs, data: parsed.data ?? {}, body: parsed.content });
     } catch (err) {
-      // Broken YAML in one document must not hide the other 27.
+      // Битый YAML в одном документе не должен скрывать остальные.
       BROKEN.push({ rel, error: err instanceof Error ? err.message.split("\n")[0]! : String(err) });
       files.push({ rel, abs, data: {}, body: raw });
     }
@@ -110,17 +110,17 @@ function describe(doc: DocFile): string {
 
 export const docsSearch: ToolDefinition<{ query: string; type?: string; tag?: string; limit?: number }> = defineTool({
   name: "docs_search",
-  title: "Search ai-docs",
+  title: "Поиск по базе знаний",
   description:
-    "Full-text and metadata search over the ai-docs knowledge base (conventions, architecture, process, project cards, runbooks). " +
-    "Returns ranked documents with matching lines so you can decide what to read in full with docs_read. " +
-    "This is the primary way to find out how things must be done in this company — prefer it over guessing.",
+    "Поиск по базе знаний ai-docs: по тексту, заголовкам, тегам и frontmatter. " +
+    "Возвращает ранжированные документы со строками совпадений, чтобы решить, что прочитать целиком через docs_read. " +
+    "Это основной способ узнать, как у нас принято делать; догадки вместо поиска недопустимы.",
   annotations: { readOnlyHint: true, openWorldHint: false },
   inputSchema: z.object({
-    query: z.string().min(2).describe("Space-separated terms, e.g. 'rest api pagination' or 'kafka retry'."),
-    type: z.string().optional().describe("Filter by frontmatter `type`: convention | architecture | process | project | runbook | adr | glossary | meta."),
-    tag: z.string().optional().describe("Filter by a single frontmatter tag."),
-    limit: z.number().int().min(1).max(25).optional().describe("Max documents to return (default 8)."),
+    query: z.string().min(2).describe("Термины через пробел, например 'rest api пагинация' или 'kafka ретрай'."),
+    type: z.string().optional().describe("Фильтр по полю `type` из frontmatter, если оно заполнено в вашей базе."),
+    tag: z.string().optional().describe("Фильтр по одному тегу из frontmatter."),
+    limit: z.number().int().min(1).max(25).optional().describe("Сколько документов вернуть, по умолчанию 8."),
   }),
   async handler(input, ctx) {
     const root = ctx.config.aiDocsPath;
@@ -148,9 +148,9 @@ export const docsSearch: ToolDefinition<{ query: string; type?: string; tag?: st
 
     if (results.length === 0) {
       return text(
-        `No ai-docs match "${input.query}".\n\n` +
-          `The knowledge base currently holds ${docs.length} documents. Call docs_read with no arguments to see the full map, ` +
-          `or retry with broader terms. If the topic is genuinely undocumented, say so in the merge request instead of inventing a convention.`,
+        `По запросу "${input.query}" в базе знаний ничего не найдено.\n\n` +
+          `Сейчас в базе ${docs.length} документов. Вызови docs_read без аргументов, чтобы увидеть карту, ` +
+          `или повтори поиск с более широкими формулировками. Если темы в базе действительно нет — скажи об этом в описании pull request, а не выдумывай конвенцию.`,
       );
     }
 
@@ -159,7 +159,7 @@ export const docsSearch: ToolDefinition<{ query: string; type?: string; tag?: st
       .join("\n\n");
 
     return text(
-      `${results.length} document(s) matching "${input.query}":\n\n${body}\n\nRead the relevant ones in full with docs_read.`,
+      `Документов по запросу "${input.query}": ${results.length}\n\n${body}\n\nПрочитай подходящие целиком через docs_read.`,
       { matches: results.map((r) => ({ path: r.doc.rel, id: r.doc.data.id ?? null, score: r.score })) },
     );
   },
@@ -167,14 +167,14 @@ export const docsSearch: ToolDefinition<{ query: string; type?: string; tag?: st
 
 export const docsRead: ToolDefinition<{ path?: string; section?: string }> = defineTool({
   name: "docs_read",
-  title: "Read ai-docs",
+  title: "Чтение базы знаний",
   description:
-    "Read a document from ai-docs by its path (or by frontmatter id). Called with no arguments it returns the catalogue: " +
-    "the knowledge-base map plus every document with its id, title and type. Start every ticket with an argument-less call.",
+    "Прочитать документ базы знаний по пути или по id из frontmatter. Без аргументов возвращает карту базы: " +
+    "содержимое INDEX.md и каталог всех документов. С этого вызова начинается работа над любой задачей.",
   annotations: { readOnlyHint: true, openWorldHint: false },
   inputSchema: z.object({
-    path: z.string().optional().describe("Path relative to ai-docs root, e.g. '30-conventions/rest-api.md', or a frontmatter id."),
-    section: z.string().optional().describe("Return only the markdown section whose heading contains this text."),
+    path: z.string().optional().describe("Путь относительно корня базы, например '30-conventions/rest-api.md', либо id из frontmatter."),
+    section: z.string().optional().describe("Вернуть только раздел, в заголовке которого встречается этот текст."),
   }),
   async handler(input, ctx) {
     const root = ctx.config.aiDocsPath;
@@ -196,7 +196,7 @@ export const docsRead: ToolDefinition<{ path?: string; section?: string }> = def
           (index
             ? `=== INDEX.md ===\n${index.body.trim()}\n\n`
             : "(в корне базы нет INDEX.md — ориентируйся по каталогу ниже и docs_search)\n\n") +
-          `=== Catalogue (${docs.length} documents) ===\n${catalogue}`,
+          `=== Каталог (${docs.length} документов) ===\n${catalogue}`,
         { root, count: docs.length, documents: docs.map((d) => ({ path: d.rel, id: d.data.id ?? null, type: d.data.type ?? null })) },
       );
     }
@@ -210,7 +210,7 @@ export const docsRead: ToolDefinition<{ path?: string; section?: string }> = def
 
     if (!doc) {
       return failure(
-        `No such document: "${input.path}". Call docs_read with no arguments for the catalogue, or docs_search to find it.`,
+        `Документа "${input.path}" нет. Вызови docs_read без аргументов, чтобы увидеть каталог, или найди его через docs_search.`,
       );
     }
 
@@ -218,7 +218,7 @@ export const docsRead: ToolDefinition<{ path?: string; section?: string }> = def
     if (input.section) {
       const lines = body.split("\n");
       const start = lines.findIndex((l) => /^#{1,6}\s/.test(l) && l.toLowerCase().includes(input.section!.toLowerCase()));
-      if (start === -1) return failure(`Document ${doc.rel} has no heading matching "${input.section}".`);
+      if (start === -1) return failure(`В документе ${doc.rel} нет заголовка, содержащего "${input.section}".`);
       const level = (lines[start]!.match(/^#+/) ?? ["#"])[0].length;
       let end = lines.length;
       for (let i = start + 1; i < lines.length; i++) {

@@ -1,5 +1,17 @@
 {
   "mcpServers": {
+    "bitbucket": {
+      "httpUrl": "{env:BITBUCKET_MCP_URL}",
+      "timeout": 30000
+    },
+    "jira": {
+      "httpUrl": "{env:JIRA_MCP_URL}",
+      "headers": {
+        "Authorization": "{env:JIRA_TOKEN}",
+        "JIRA_URL": "{env:JIRA_URL}"
+      },
+      "timeout": 30000
+    },
     "be-tools": {
       "command": "npx",
       "args": ["tsx", "src/index.ts"],
@@ -10,7 +22,7 @@
     }
   },
   "mcp": {
-    "allowed": ["be-tools"]
+    "allowed": ["bitbucket", "jira", "be-tools"]
   },
   "$version": 4
 }

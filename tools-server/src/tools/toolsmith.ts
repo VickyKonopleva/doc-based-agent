@@ -10,42 +10,42 @@ const TEMPLATE = `import { defineTool, z } from "./_sdk.js";
 
 export default defineTool({
   name: "my_tool",
-  description: "What this tool does and when the agent should reach for it.",
+  description: "Что делает инструмент и когда к нему обращаться.",
   annotations: { readOnlyHint: true },
   inputSchema: z.object({
-    example: z.string().describe("Describe every field — the model only sees these descriptions."),
+    example: z.string().describe("Опиши каждое поле — модель видит только эти описания."),
   }),
   async handler(input, ctx) {
-    // ctx.config  — paths and credentials (ai-docs, workspace, vcs, jira)
-    // ctx.logger  — stderr/file logging; never write to stdout
-    return { content: [{ type: "text", text: \`got \${input.example}\` }] };
+    // ctx.config  — пути и доступы: ai-docs, services, spec, jira
+    // ctx.logger  — лог в stderr или файл; в stdout писать нельзя
+    return { content: [{ type: "text", text: \`получено \${input.example}\` }] };
   },
 });
 `;
 
 export const toolCreate: ToolDefinition<{ name: string; source: string; overwrite?: boolean }> = defineTool({
   name: "tool_create",
-  title: "Create a tool",
+  title: "Создать инструмент",
   description:
-    "Write a new tool into the running tool server and expose it immediately — no restart. " +
-    "Use this whenever you find yourself about to repeat a non-trivial mechanical operation (calling an internal API, " +
-    "parsing a build report, opening a merge request). The source is a TypeScript module that default-exports " +
-    "defineTool({ name, description, inputSchema, handler }); inputSchema is a zod object. " +
-    "Call tool_template first if you need the exact shape. Tools persist in tools-server/dynamic/ and are reviewed like any other code.",
+    "Добавить новый инструмент в работающий сервер и получить его сразу, без рестарта. " +
+    "Пиши инструмент, когда собираешься повторить нетривиальную механическую операцию: вызов внутреннего API, " +
+    "разбор отчёта сборки, выгрузку схемы. Исходник — модуль TypeScript с default-экспортом " +
+    "defineTool({ name, description, inputSchema, handler }); inputSchema — объект zod. " +
+    "Точный вид выдаёт tool_template. Файл остаётся в tools-server/dynamic/ и проходит ревью наравне с кодом.",
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   inputSchema: z.object({
-    name: z.string().describe("snake_case tool name, 3-48 chars. Must match the `name` inside the source."),
-    source: z.string().min(40).describe("Full TypeScript source of the module."),
-    overwrite: z.boolean().optional().describe("Replace an existing tool file with the same name (default false)."),
+    name: z.string().describe("Имя в snake_case, 3–48 символов. Должно совпадать с полем `name` внутри исходника."),
+    source: z.string().min(40).describe("Полный исходный текст модуля на TypeScript."),
+    overwrite: z.boolean().optional().describe("Заменить существующий инструмент с тем же именем (по умолчанию false)."),
   }),
   async handler(input, ctx) {
     const cfg = ctx.config;
-    if (!cfg.allowDynamicTools) return failure("Tool authoring is disabled (TOOLS_ALLOW_DYNAMIC=false).");
+    if (!cfg.allowDynamicTools) return failure("Создание инструментов отключено (TOOLS_ALLOW_DYNAMIC=false).");
     if (!NAME_RE.test(input.name)) {
-      return failure(`Invalid tool name "${input.name}". Use snake_case, 3-48 chars, starting with a letter.`);
+      return failure(`Недопустимое имя "${input.name}". Нужен snake_case, 3–48 символов, начиная с буквы.`);
     }
     if (ctx.listToolNames().includes(input.name) && !input.overwrite) {
-      return failure(`Tool "${input.name}" already exists. Pass overwrite: true to replace it.`);
+      return failure(`Инструмент "${input.name}" уже есть. Передай overwrite: true, чтобы заменить.`);
     }
 
     const file = path.join(cfg.dynamicDir, `${input.name}.tool.ts`);
@@ -54,22 +54,22 @@ export const toolCreate: ToolDefinition<{ name: string; source: string; overwrit
     try {
       await fs.copyFile(file, backup);
       hadPrevious = true;
-    } catch { /* no previous version */ }
+    } catch { /* прежней версии не было */ }
 
     await fs.writeFile(file, input.source.endsWith("\n") ? input.source : input.source + "\n", "utf8");
 
-    // Compile and import before announcing it: a broken tool must not reach the model.
+    // Компилируем и импортируем до регистрации: сломанный инструмент не должен дойти до модели.
     try {
       const tools = await importToolFile(file, cfg);
       const names = tools.map((t) => t.name);
       if (!names.includes(input.name)) {
-        throw new Error(`module exports ${names.join(", ") || "nothing"}, but the requested name was "${input.name}"`);
+        throw new Error(`модуль экспортирует ${names.join(", ") || "ничего"}, а запрошено имя "${input.name}"`);
       }
     } catch (err) {
       if (hadPrevious) await fs.copyFile(backup, file).catch(() => {});
       else await fs.rm(file, { force: true });
       await fs.rm(backup, { force: true });
-      return failure(`Tool "${input.name}" was rejected and nothing was changed:\n${err instanceof Error ? err.message : String(err)}`);
+      return failure(`Инструмент "${input.name}" отклонён, на диске ничего не изменилось:\n${err instanceof Error ? err.message : String(err)}`);
     }
     await fs.rm(backup, { force: true });
 
@@ -77,9 +77,9 @@ export const toolCreate: ToolDefinition<{ name: string; source: string; overwrit
     ctx.logger.info("tool created", { name: input.name, file });
 
     return text(
-      `Tool "${input.name}" is live (${path.relative(cfg.dynamicDir, file)}). You can call it right now.\n` +
-        `Tools currently available: ${ctx.listToolNames().join(", ")}` +
-        (report.failed.length ? `\nOther dynamic files failing to load: ${report.failed.map((f) => f.file).join(", ")}` : ""),
+      `Инструмент "${input.name}" готов (${path.relative(cfg.dynamicDir, file)}), можно вызывать прямо сейчас.\n` +
+        `Сейчас доступны: ${ctx.listToolNames().join(", ")}` +
+        (report.failed.length ? `\nНе загружаются другие файлы: ${report.failed.map((f) => f.file).join(", ")}` : ""),
       { created: input.name, file },
     );
   },
@@ -87,8 +87,8 @@ export const toolCreate: ToolDefinition<{ name: string; source: string; overwrit
 
 export const toolList: ToolDefinition<Record<string, never>> = defineTool({
   name: "tool_list",
-  title: "List tools",
-  description: "List every tool this server currently exposes, marking which are built in and which were authored by the agent.",
+  title: "Список инструментов",
+  description: "Показать все инструменты сервера, отметив встроенные и написанные агентом.",
   annotations: { readOnlyHint: true },
   inputSchema: z.object({}),
   async handler(_input, ctx) {
@@ -96,14 +96,14 @@ export const toolList: ToolDefinition<Record<string, never>> = defineTool({
     let files: string[] = [];
     try {
       files = (await fs.readdir(ctx.config.dynamicDir)).filter((f) => TOOL_FILE_RE.test(f));
-    } catch { /* directory may not exist yet */ }
+    } catch { /* каталога может ещё не быть */ }
 
     return text(
-      `Available tools: ${ctx.listToolNames().join(", ")}\n` +
-        `Agent-authored files in ${ctx.config.dynamicDir}: ${files.join(", ") || "(none)"}\n` +
+      `Доступные инструменты: ${ctx.listToolNames().join(", ")}\n` +
+        `Написаны агентом, в ${ctx.config.dynamicDir}: ${files.join(", ") || "(нет)"}\n` +
         (report.failed.length
-          ? `Failing to load:\n${report.failed.map((f) => `  ${f.file}: ${f.error}`).join("\n")}`
-          : "All dynamic tool files load cleanly."),
+          ? `Не загружаются:\n${report.failed.map((f) => `  ${f.file}: ${f.error}`).join("\n")}`
+          : "Все файлы инструментов загружаются без ошибок."),
       { tools: ctx.listToolNames(), files, failed: report.failed },
     );
   },
@@ -111,14 +111,14 @@ export const toolList: ToolDefinition<Record<string, never>> = defineTool({
 
 export const toolTemplate: ToolDefinition<Record<string, never>> = defineTool({
   name: "tool_template",
-  title: "Tool template",
-  description: "Return the skeleton of a tool module, plus the context object a handler receives. Read this before your first tool_create.",
+  title: "Шаблон инструмента",
+  description: "Выдать скелет модуля инструмента и критерии, когда его стоит писать. Прочитай перед первым tool_create.",
   annotations: { readOnlyHint: true },
   inputSchema: z.object({}),
   async handler(_input, ctx) {
     return text(
       [
-        "Write the module exactly like this and pass it as `source` to tool_create:",
+        "Напиши модуль ровно в таком виде и передай его как `source` в tool_create:",
         "",
         "```ts",
         TEMPLATE.trim(),
@@ -152,19 +152,19 @@ export const toolTemplate: ToolDefinition<Record<string, never>> = defineTool({
 
 export const toolDelete: ToolDefinition<{ name: string }> = defineTool({
   name: "tool_delete",
-  title: "Delete a tool",
-  description: "Remove an agent-authored tool. Built-in tools cannot be deleted.",
+  title: "Удалить инструмент",
+  description: "Удалить инструмент, написанный агентом. Встроенные удалить нельзя.",
   annotations: { readOnlyHint: false, destructiveHint: true },
-  inputSchema: z.object({ name: z.string().describe("Name of the agent-authored tool to remove.") }),
+  inputSchema: z.object({ name: z.string().describe("Имя удаляемого инструмента, написанного агентом.") }),
   async handler(input, ctx) {
     const file = path.join(ctx.config.dynamicDir, `${input.name}.tool.ts`);
     try {
       await fs.rm(file);
     } catch {
-      return failure(`No agent-authored tool file for "${input.name}" in ${ctx.config.dynamicDir}.`);
+      return failure(`В ${ctx.config.dynamicDir} нет файла инструмента "${input.name}".`);
     }
     await ctx.reloadDynamicTools();
-    return text(`Removed "${input.name}". Remaining tools: ${ctx.listToolNames().join(", ")}`);
+    return text(`Удалён "${input.name}". Остались: ${ctx.listToolNames().join(", ")}`);
   },
 });
 

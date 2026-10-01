@@ -5,9 +5,9 @@ import type { Logger } from "./logger.js";
 export interface ToolContext {
   config: Config;
   logger: Logger;
-  /** Re-read the dynamic tool directory and push tools/list_changed to the client. */
+  /** Перечитать каталог инструментов и отправить клиенту tools/list_changed. */
   reloadDynamicTools(): Promise<{ loaded: string[]; failed: { file: string; error: string }[] }>;
-  /** Tool names currently exposed to the model. */
+  /** Имена инструментов, доступных модели сейчас. */
   listToolNames(): string[];
 }
 
@@ -17,22 +17,22 @@ export interface ToolResultContent {
 }
 
 export interface ToolResult {
-  /** The MCP result type is open; this keeps structural compatibility with the SDK. */
+  /** Тип результата в MCP открытый; это сохраняет совместимость с SDK. */
   [key: string]: unknown;
   content: ToolResultContent[];
   isError?: boolean;
-  /** Optional machine-readable payload; clients that ignore it still get `content`. */
+  /** Необязательная машиночитаемая часть; клиент, который её не понимает, получит `content`. */
   structuredContent?: Record<string, unknown>;
 }
 
-/** A JSON Schema object, for tools authored without zod. */
+/** Объект JSON Schema — для инструментов, написанных без zod. */
 export type JsonSchema = Record<string, unknown>;
 
 export interface ToolDefinition<I = unknown> {
   name: string;
   title?: string;
   description: string;
-  /** zod schema (preferred) or a raw JSON Schema object. */
+  /** Схема zod (предпочтительно) либо готовый объект JSON Schema. */
   inputSchema: z.ZodType<I> | JsonSchema;
   annotations?: {
     readOnlyHint?: boolean;
@@ -40,13 +40,13 @@ export interface ToolDefinition<I = unknown> {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
   };
-  /** Set by the loader for tools read from the dynamic directory. */
+  /** Проставляется загрузчиком для инструментов из каталога dynamic. */
   source?: "builtin" | "dynamic";
   sourceFile?: string;
   handler(input: I, ctx: ToolContext): Promise<ToolResult | string>;
 }
 
-/** Identity helper that gives agent-authored tool files full type inference. */
+/** Тождественный хелпер: даёт полный вывод типов в файлах инструментов. */
 export function defineTool<I>(def: ToolDefinition<I>): ToolDefinition<I> {
   return def;
 }

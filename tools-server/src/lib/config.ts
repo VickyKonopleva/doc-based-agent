@@ -3,19 +3,20 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-/** tools-server/ — works both from src/ (tsx) and dist/ (node). */
+/** tools-server/ — работает и из src/ (tsx), и из dist/ (node). */
 export const SERVER_ROOT = path.resolve(here, "..", "..");
-/** Repository root that holds .gigacode/, ai-docs/ and tools-server/. */
+/** Корень репозитория: .gigacode/, tools-server/ и прочее. */
 export const PROJECT_ROOT = path.resolve(SERVER_ROOT, "..");
 
+/** `external` — источник отдан внешнему MCP-серверу, наши инструменты не регистрируются. */
 export type JiraProvider = "local" | "external" | "mock";
-export type SpecProvider = "gitlab" | "github" | "bitbucket" | "mock";
-export type VcsProvider = "gitlab" | "github" | "bitbucket" | "none";
+export type SpecProvider = "bitbucket" | "gitlab" | "github" | "external" | "mock";
+export type VcsProvider = "bitbucket" | "gitlab" | "github" | "none";
 
 /**
- * GigaCode launches this server with `npx tsx …` and no `env` block, so the
- * server loads its own secrets. Values already present in the environment win,
- * which keeps CI and `{env:…}` substitution in settings.json working.
+ * GigaCode запускает сервер через `npx tsx …` без блока `env`, поэтому сервер
+ * сам читает свои настройки. Значения, уже заданные в окружении, имеют
+ * приоритет — так продолжают работать CI и подстановка `{env:…}`.
  */
 function loadDotEnv(file: string): void {
   let raw: string;
@@ -65,34 +66,33 @@ function resolveFromProject(p: string): string {
 
 export interface Config {
   /**
-   * Documentation base the whole agent is built around. It lives OUTSIDE this
-   * repository — a local checkout or a clone of the GitLab repo — and is
-   * pointed at by AI_DOCS_PATH.
+   * База знаний, вокруг которой построен весь агент. Живёт ВНЕ этого
+   * репозитория — локальный чекаут или клон — и задаётся через AI_DOCS_PATH.
    */
   aiDocsPath: string;
-  /** Where that base comes from, used in error messages and by sync-ai-docs.sh. */
+  /** Откуда база берётся: нужно для текстов ошибок и для sync-ai-docs.sh. */
   aiDocsGitUrl: string;
   aiDocsRef: string;
 
   /**
-   * Backend microservices. The agent is not given a checkout: it works out
-   * which services a task touches, builds each repository URL from the common
-   * prefix and clones it into workspacesDir.
+   * Backend-микросервисы. Чекаут агенту не выдаётся: он сам определяет, какие
+   * сервисы задевает задача, достраивает адрес каждого из общего префикса и
+   * клонирует их в workspacesDir.
    */
   services: {
-    /** URL prefix shared by every service repo, e.g. "git@git.company.ru:backend/". */
+    /** Общий префикс адресов репозиториев, напр. "ssh://git@bitbucket.company.ru:7999/be/". */
     gitBase: string;
-    /** Group/org path for API calls — listing repositories, opening MRs. */
+    /** Ключ проекта Bitbucket (или группа/организация) для вызовов API. */
     group: string;
-    /** Suffix every backend service repo carries, e.g. "-be". */
+    /** Суффикс, который носят все backend-репозитории, напр. "-be". */
     suffix: string;
-    /** Where clones land. */
+    /** Куда складываются клоны. */
     workspacesDir: string;
     defaultBranch: string;
     provider: SpecProvider;
     apiUrl: string;
     token: string;
-    /** 0 = full clone. */
+    /** 0 — полный клон. */
     cloneDepth: number;
     mockDir: string;
   };
@@ -113,16 +113,29 @@ export interface Config {
     mockDir: string;
   };
 
-  /** Repository of system-analysis specifications. The PR there is the task. */
+  /** Репозиторий спецификаций системного анализа. PR в нём — это ТЗ. */
   spec: {
     provider: SpecProvider;
     baseUrl: string;
     token: string;
     projectId: string;
     mockDir: string;
-    /** Which changed files count as specification worth reading in full. */
+    /** Какие изменённые файлы считать спецификацией. */
     filePatterns: string[];
     maxFileBytes: number;
+  };
+
+  /**
+   * Nexus. Сервер не умеет искать артефакты и не должен: агент сам решает,
+   * как опросить репозиторий по этому адресу. Здесь только координаты.
+   */
+  nexus: {
+    url: string;
+    repository: string;
+    /** Из имени сервиса получаются имена артефактов: service-be → service-be-api, … */
+    artifactSuffixes: string[];
+    user: string;
+    token: string;
   };
 
   vcs: {
@@ -151,7 +164,7 @@ export function loadConfig(): Config {
       suffix: env("SERVICES_SUFFIX", "-be"),
       workspacesDir: resolveFromProject(env("WORKSPACES_DIR", "workspaces")),
       defaultBranch: env("SERVICES_DEFAULT_BRANCH", env("VCS_TARGET_BRANCH", "master")),
-      provider: env("SERVICES_PROVIDER", env("VCS_PROVIDER", "gitlab")) as SpecProvider,
+      provider: env("SERVICES_PROVIDER", env("VCS_PROVIDER", "bitbucket")) as SpecProvider,
       apiUrl: env("SERVICES_API_URL", env("VCS_BASE_URL")).replace(/\/+$/, ""),
       token: env("SERVICES_TOKEN", env("VCS_TOKEN")),
       cloneDepth: int("SERVICES_CLONE_DEPTH", 0),
@@ -173,7 +186,7 @@ export function loadConfig(): Config {
     },
 
     spec: {
-      provider: env("SPEC_PROVIDER", "gitlab") as SpecProvider,
+      provider: env("SPEC_PROVIDER", "bitbucket") as SpecProvider,
       baseUrl: env("SPEC_BASE_URL", env("VCS_BASE_URL")).replace(/\/+$/, ""),
       token: env("SPEC_TOKEN", env("VCS_TOKEN")),
       projectId: env("SPEC_PROJECT_ID"),
@@ -182,8 +195,16 @@ export function loadConfig(): Config {
       maxFileBytes: int("SPEC_MAX_FILE_BYTES", 200_000),
     },
 
+    nexus: {
+      url: env("NEXUS_URL").replace(/\/+$/, ""),
+      repository: env("NEXUS_REPOSITORY"),
+      artifactSuffixes: list("NEXUS_ARTIFACT_SUFFIXES", ["-api", "-roles-pprb"]),
+      user: env("NEXUS_USER"),
+      token: env("NEXUS_TOKEN"),
+    },
+
     vcs: {
-      provider: env("VCS_PROVIDER", "gitlab") as VcsProvider,
+      provider: env("VCS_PROVIDER", "bitbucket") as VcsProvider,
       baseUrl: env("VCS_BASE_URL").replace(/\/+$/, ""),
       token: env("VCS_TOKEN"),
       projectId: env("VCS_PROJECT_ID"),

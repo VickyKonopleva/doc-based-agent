@@ -12,7 +12,7 @@
 spec_driven_flow:   -     # как работать с PR аналитики (черновик: docs/proposed-ai-docs/spec-driven-flow.md)
 ticket_lifecycle:   -     # жизненный цикл задачи
 branching_commits:  -     # имена веток, формат коммитов
-merge_request:      -     # шаблон описания MR
+merge_request:      -     # шаблон описания PR
 definition_of_done: -     # DoD
 review_checklist:   -     # чеклист код-ревью
 

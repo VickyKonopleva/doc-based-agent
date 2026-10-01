@@ -1,17 +1,17 @@
-# dynamic/ — tools the agent writes for itself
+# dynamic/ — инструменты, которые агент пишет себе сам
 
-Everything here was (or will be) authored at run time by the agent through
-`tool_create`, then loaded without restarting the server.
+Всё, что здесь лежит, агент создал (или создаст) на лету через `tool_create`,
+после чего инструмент загружается без перезапуска сервера.
 
-- One tool per file, named `<tool_name>.tool.ts`.
+- Один инструмент — один файл с именем `<имя_инструмента>.tool.ts`.
 - `export default defineTool({ ... })`.
-- Import the helpers from `./_sdk.js` (see [`_sdk.ts`](_sdk.ts)).
-- `_sdk.ts` and anything not matching `*.tool.ts` is ignored by the loader.
+- Хелперы импортируются из `./_sdk.js`, см. [`_sdk.ts`](_sdk.ts).
+- Загрузчик берёт только файлы `*.tool.ts`; `_sdk.ts` и прочее игнорируются.
 
-These files are committed. A tool the agent invents during a ticket is reviewed
-in the merge request like any other code — that is the point of keeping them as
-source rather than as in-memory closures. Promote the ones that prove useful
-into `src/tools/` as built-ins.
+Файлы версионируются. Инструмент, придуманный в ходе задачи, проходит ревью в
+том же pull request, что и изменения сервиса, — ради этого они и хранятся
+исходниками, а не живут в памяти процесса. Прижившиеся стоит перенести в
+`src/tools/` как встроенные.
 
-`create_merge_request.tool.ts` ships as a worked example; the agent is free to
-rewrite or delete it.
+`create_pull_request.tool.ts` поставляется как рабочий пример; агент может его
+переписать или удалить.

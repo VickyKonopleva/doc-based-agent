@@ -14,6 +14,7 @@ import type { ToolContext, ToolResult } from "./lib/types.js";
 import { loadDynamicTools } from "./runtime/dynamic.js";
 import { docsTools } from "./tools/docs.js";
 import { jiraTools } from "./tools/jira.js";
+import { contextTools } from "./tools/context.js";
 import { serviceTools } from "./tools/services.js";
 import { skillTools } from "./tools/skills.js";
 import { specTools } from "./tools/spec.js";
@@ -23,7 +24,7 @@ const config = loadConfig();
 const logger = createLogger(config.logLevel, config.logFile);
 const registry = new ToolRegistry();
 
-for (const tool of [...docsTools, ...jiraTools(config), ...specTools(config), ...serviceTools(config), ...skillTools(config), ...toolsmithTools]) {
+for (const tool of [...contextTools(config), ...docsTools, ...jiraTools(config), ...specTools(config), ...serviceTools(config), ...skillTools(config), ...toolsmithTools]) {
   registry.register(tool, "builtin");
 }
 
@@ -41,7 +42,7 @@ const ctx: ToolContext = {
     try {
       await server.sendToolListChanged();
     } catch (err) {
-      // Clients that do not support listChanged simply re-list on their own.
+      // Клиенты без поддержки listChanged просто перечитают список сами.
       logger.debug("tools/list_changed not delivered", err);
     }
     return report;
@@ -55,7 +56,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
   const tool = registry.get(name);
   if (!tool) {
     return {
-      content: [{ type: "text", text: `Unknown tool "${name}". Available: ${registry.names().join(", ")}` }],
+      content: [{ type: "text", text: `Неизвестный инструмент "${name}". Доступны: ${registry.names().join(", ")}` }],
       isError: true,
     };
   }
@@ -67,7 +68,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
       const issues = parsed.error.issues
         .map((i: { path: (string | number)[]; message: string }) => `${i.path.join(".") || "(root)"}: ${i.message}`)
         .join("; ");
-      return { content: [{ type: "text", text: `Invalid arguments for "${name}": ${issues}` }], isError: true };
+      return { content: [{ type: "text", text: `Неверные аргументы для "${name}": ${issues}` }], isError: true };
     }
     input = parsed.data;
   }
@@ -82,7 +83,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToo
   } catch (err) {
     logger.error("tool call threw", { name, error: err });
     return {
-      content: [{ type: "text", text: `Tool "${name}" failed: ${err instanceof Error ? err.message : String(err)}` }],
+      content: [{ type: "text", text: `Инструмент "${name}" упал: ${err instanceof Error ? err.message : String(err)}` }],
       isError: true,
     };
   }

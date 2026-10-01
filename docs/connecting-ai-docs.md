@@ -17,11 +17,11 @@ AI_DOCS_PATH=/Users/me/work/ai-docs
 Правки в базе видны агенту сразу: файлы читаются при каждом вызове, перезапуск
 сервера инструментов не нужен.
 
-## Вариант 2. Репозиторий GitLab
+## Вариант 2. Репозиторий Bitbucket
 
 ```bash
 # .env
-AI_DOCS_GIT_URL=git@git.company.ru:ai/ai-docs.git
+AI_DOCS_GIT_URL=ssh://git@bitbucket.company.ru:7999/ai/ai-docs.git
 AI_DOCS_REF=master
 AI_DOCS_PATH=ai-docs          # куда клонировать; этот путь в .gitignore
 ```
@@ -36,7 +36,7 @@ AI_DOCS_PATH=ai-docs          # куда клонировать; этот пут
 Альтернатива для тех, кто предпочитает submodule:
 
 ```bash
-git submodule add git@git.company.ru:ai/ai-docs.git ai-docs
+git submodule add ssh://git@bitbucket.company.ru:7999/ai/ai-docs.git ai-docs
 ```
 
 Тогда `AI_DOCS_PATH=ai-docs`, а `sync-ai-docs.sh` не нужен.
@@ -72,8 +72,8 @@ frontmatter повышают точность поиска, как ранжир�
 
 - `spec-driven-flow.md` — как читать PR аналитики, трассируемость требований,
   стоп-ситуации;
-- `merge-request-additions.md` — ссылка на спеку и таблица требований в
-  описании MR.
+- `pull-request-additions.md` — ссылка на спеку и таблица требований в
+  описании PR.
 
 Проверить, чего не хватает по конкретной теме:
 

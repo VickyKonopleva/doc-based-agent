@@ -11,8 +11,8 @@ export interface Logger {
 }
 
 /**
- * stdio transport owns stdout — every byte written there must be JSON-RPC.
- * Everything we log therefore goes to stderr and, optionally, to a file.
+ * stdout принадлежит транспорту stdio: каждый байт там должен быть JSON-RPC.
+ * Поэтому всё, что мы логируем, идёт в stderr и, по желанию, в файл.
  */
 export function createLogger(level: Level, logFile = ""): Logger {
   const threshold = LEVELS[level] ?? LEVELS.info;

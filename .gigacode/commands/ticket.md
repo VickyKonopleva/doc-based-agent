@@ -1,5 +1,5 @@
 ---
-description: Взять задачу в работу по тикету Jira и PR аналитики, довести до draft merge request
+description: Взять задачу в работу по тикету Jira и PR аналитики, довести до pull request
 ---
 
 Возьми в работу задачу: `{{args}}`.

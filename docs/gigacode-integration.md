@@ -93,7 +93,7 @@ permissive режим родителя всё равно имеет приори
 
 ```bash
 cd tools-server && npm run check     # конфигурация .gigacode
-cd tools-server && npm run smoke     # 66 проверок сервера на фикстурах, без сети
+cd tools-server && npm run smoke     # 72 проверки сервера на фикстурах, без сети
 cd tools-server && npm run inspect   # веб-инспектор MCP, вызов инструментов руками
 ```
 
@@ -122,7 +122,8 @@ GigaCode нет — дело в записи в `settings.json`, а не в се
 - [ ] `.env` заполнен и не попал в git (`git check-ignore -v .env`)
 - [ ] база знаний доступна: `bootstrap.sh` печатает число документов
 - [ ] `/memory` показывает `GIGACODE.md`
-- [ ] `/mcp` показывает `be-tools`: 12 встроенных инструментов + `create_merge_request`
+- [ ] `/mcp` показывает `bitbucket`, `jira` и `be-tools`
+- [ ] в `/tools` есть `agent_context`, `service_checkout` и `spec_*` (последние — если `SPEC_PROVIDER` не `external`)
 - [ ] `/agents manage` показывает пять агентов
 - [ ] `/skills` пуст — скилы создаёт сам агент, предустановленных нет
 - [ ] `/ticket BACK-1234 456` начинается с `spec_get_pr`
@@ -156,7 +157,7 @@ cd tools-server && npm run smoke
 ```
 
 Прогон на фикстурах: ответ на вопрос «сервер вообще рабочий», без Jira,
-GitLab и базы знаний.
+Bitbucket и базы знаний.
 
 Одноразовая проверка, что процесс поднимается и отвечает:
 
@@ -179,7 +180,8 @@ cd tools-server && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize",
 | `/mcp` показывает Disconnected | смотрите stderr процесса; поднимите `discoveryTimeoutMs` |
 | `docs_read` отвечает «база знаний недоступна» | `AI_DOCS_PATH` в `.env`; сервер печатает его при старте |
 | `service_checkout` не находит репозиторий | `SERVICES_GIT_BASE` и `SERVICES_SUFFIX`; сверьте имя через `service_list` |
-| клон по https просит пароль | `SERVICES_TOKEN` в `.env`; для ssh — ключ в агенте |
+| клон по ssh просит пароль | ключ не в ssh-agent; для https — задайте `SERVICES_TOKEN` |
+| `spec_get_pr` не виден в `/tools` | это нормально при `SPEC_PROVIDER=external`: PR аналитики читает MCP Bitbucket |
 | инструмент, созданный агентом, не виден | `tool_list` перечитывает каталог; битый файл перечислен там же с ошибкой |
 | скил не появился | скилы не подхватываются на лету, нужна новая сессия |
 

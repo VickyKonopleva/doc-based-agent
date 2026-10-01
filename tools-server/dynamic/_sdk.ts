@@ -1,18 +1,18 @@
 /**
- * The surface agent-authored tools are written against.
+ * Поверхность, против которой пишутся инструменты агента.
  *
- * Tool files live here, but they are executed from tools-server/.cache after
- * transpilation — the loader compiles this shim to .cache/_sdk.js on every
- * reload, which is why `import { defineTool } from "./_sdk.js"` resolves both
- * in the IDE and at runtime. Keep every runtime import in this file resolvable
- * from node_modules; types are imported with `import type` so they disappear.
+ * Файлы инструментов лежат здесь, но исполняются из tools-server/.cache после
+ * транспиляции: загрузчик компилирует этот шим в .cache/_sdk.js при каждой
+ * перезагрузке, поэтому `import { defineTool } from "./_sdk.js"` разрешается и
+ * в IDE, и в рантайме. Все рантайм-импорты здесь должны разрешаться из
+ * node_modules; типы импортируются через `import type`, чтобы исчезнуть.
  */
 import type { ToolContext, ToolDefinition, ToolResult } from "../src/lib/types.js";
 
 export type { ToolContext, ToolDefinition, ToolResult };
 export { z } from "zod";
 
-/** Identity helper — exists purely so the object literal gets type-checked. */
+/** Тождественный хелпер — нужен только затем, чтобы литерал проверялся типами. */
 export function defineTool<I>(def: ToolDefinition<I>): ToolDefinition<I> {
   return def;
 }

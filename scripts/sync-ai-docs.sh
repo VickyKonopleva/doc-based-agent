@@ -27,7 +27,7 @@ AI_DOCS_GIT_URL не задан в .env.
 
 либо задайте адрес репозитория и повторите:
 
-    AI_DOCS_GIT_URL=git@git.company.ru:ai/ai-docs.git
+    AI_DOCS_GIT_URL=ssh://git@bitbucket.company.ru:7999/ai/ai-docs.git
     AI_DOCS_REF=master
 MSG
   exit 2

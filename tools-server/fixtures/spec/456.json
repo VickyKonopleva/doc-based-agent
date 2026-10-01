@@ -5,7 +5,7 @@
   "state": "opened",
   "sourceBranch": "spec/BACK-1234-payment-callback-retry",
   "targetBranch": "master",
-  "webUrl": "https://git.company.ru/analytics/sa-specifications/-/merge_requests/456",
+  "webUrl": "https://bitbucket.company.ru/projects/SA/repos/sa-specifications/pull-requests/456",
   "description": "Спецификация к BACK-1234.\n\nДобавляем повторную обработку коллбэков платёжного шлюза. Контракт коллбэка не меняется, меняется только поведение payment-service при ошибках.\n\nСогласовано с командой платежей 2026-09-29. Вопрос по DLT остаётся открытым — см. тред в обсуждении.",
   "files": [
     {

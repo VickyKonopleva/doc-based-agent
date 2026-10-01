@@ -16,10 +16,11 @@ export interface LoadReport {
 }
 
 /**
- * Agent-authored tools live as plain source files in `dynamic/`. We transpile
- * TypeScript in-memory, drop the result into `.cache/` (inside tools-server, so
- * node_modules resolution still works) and import it with a content hash in the
- * filename — that is what makes reloading without a restart possible.
+ * Инструменты, написанные агентом, лежат обычными исходниками в `dynamic/`.
+ * TypeScript транспилируется в памяти, результат кладётся в `.cache/` (внутри
+ * tools-server, чтобы работало разрешение node_modules) и импортируется с
+ * хешем содержимого в имени — именно это позволяет перезагружать их без
+ * рестарта процесса.
  */
 export async function loadDynamicTools(
   registry: ToolRegistry,
@@ -74,7 +75,7 @@ async function compileSdkShim(config: Config): Promise<void> {
   try {
     source = await fs.readFile(src, "utf8");
   } catch {
-    return; // no shim in this checkout; tools may still import "zod" directly
+    return; // в этом чекауте шима нет; инструменты могут импортировать "zod" напрямую
   }
   const { code } = await esbuild.transform(source, {
     loader: "ts",
@@ -85,7 +86,7 @@ async function compileSdkShim(config: Config): Promise<void> {
   await fs.writeFile(path.join(config.cacheDir, "_sdk.js"), code, "utf8");
 }
 
-/** Compiles and imports one tool file, returning every tool it exports. */
+/** Компилирует и импортирует один файл, возвращая все объявленные в нём инструменты. */
 export async function importToolFile(abs: string, config: Config): Promise<ToolDefinition<any>[]> {
   await compileSdkShim(config);
   const source = await fs.readFile(abs, "utf8");
@@ -122,7 +123,7 @@ export async function importToolFile(abs: string, config: Config): Promise<ToolD
 
   if (tools.length === 0) {
     throw new Error(
-      `${path.basename(abs)} exports no tool: expected "export default defineTool({ name, description, inputSchema, handler })"`,
+      `${path.basename(abs)} не экспортирует инструмент: ожидается "export default defineTool({ name, description, inputSchema, handler })"`,
     );
   }
   return tools;

@@ -2,7 +2,7 @@
   "name": "@ai-agent/tools-server",
   "version": "0.1.0",
   "private": true,
-  "description": "MCP (stdio) tool server for the doc-based backend-developer agent on GigaCode CLI",
+  "description": "MCP-сервер инструментов (stdio) для doc-based агента backend-разработчика на GigaCode CLI",
   "type": "module",
   "engines": {
     "node": ">=20.10.0"

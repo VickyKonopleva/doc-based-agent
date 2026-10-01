@@ -15,7 +15,7 @@ function authHeader(cfg: Config): Record<string, string> {
   return { Authorization: `Bearer ${cfg.jira.token}` };
 }
 
-/** Jira Cloud returns descriptions as ADF; Server/DC returns plain text. Flatten both. */
+/** Jira Cloud отдаёт описание в ADF, Server/DC — простым текстом. Разворачиваем оба. */
 function renderAdf(node: any): string {
   if (node == null) return "";
   if (typeof node === "string") return node;
@@ -110,14 +110,14 @@ function render(issue: NormalizedIssue): string {
     `# ${issue.key}: ${issue.summary}`,
     "",
     meta,
-    section("Description", issue.description || "_(empty)_"),
-    section("Acceptance criteria", issue.acceptanceCriteria),
+    section("Описание", issue.description || "_(пусто)_"),
+    section("Критерии приёмки", issue.acceptanceCriteria),
     section(
-      "Linked issues",
+      "Связанные тикеты",
       issue.links.map((l) => `- ${l.type} ${l.key}: ${l.summary}`).join("\n"),
     ),
     section(
-      "Comments",
+      "Комментарии",
       issue.comments.slice(-10).map((c) => `### ${c.author} (${c.created})\n${c.body}`).join("\n\n"),
     ),
   ].join("\n");
@@ -125,25 +125,25 @@ function render(issue: NormalizedIssue): string {
 
 export const jiraGetIssue: ToolDefinition<{ ticket: string; raw?: boolean }> = defineTool({
   name: "jira_get_issue",
-  title: "Read Jira issue",
+  title: "Чтение тикета Jira",
   description:
-    "Fetch a Jira issue by key (e.g. BACK-1234) and return summary, description, acceptance criteria, " +
-    "labels, components, links and recent comments. This is the agent's single entry point: the ticket key is the only input the agent receives.",
+    "Получить тикет Jira по ключу (например BACK-1234): заголовок, описание, критерии приёмки, " +
+    "метки, компоненты, связанные тикеты и последние комментарии. Тикет даёт контекст задачи; требования живут в PR аналитики.",
   annotations: { readOnlyHint: true, openWorldHint: true },
   inputSchema: z.object({
-    ticket: z.string().describe("Jira issue key, e.g. BACK-1234."),
-    raw: z.boolean().optional().describe("Return the raw Jira JSON instead of the rendered summary."),
+    ticket: z.string().describe("Ключ тикета Jira, например BACK-1234."),
+    raw: z.boolean().optional().describe("Вернуть сырой JSON Jira вместо собранной выжимки."),
   }),
   async handler(input, ctx) {
     const cfg = ctx.config;
     const key = input.ticket.trim().toUpperCase();
     if (!TICKET_RE.test(key)) {
-      return failure(`"${input.ticket}" is not a Jira issue key. Expected something like BACK-1234.`);
+      return failure(`"${input.ticket}" не похоже на ключ тикета Jira. Ожидается что-то вроде BACK-1234.`);
     }
 
     if (cfg.jira.provider === "external") {
       return failure(
-        "jira_get_issue is disabled: JIRA_PROVIDER=external. Use the external Jira MCP connector's tools instead.",
+        "jira_get_issue отключён: JIRA_PROVIDER=external. Используй инструменты внешнего MCP-коннектора Jira.",
       );
     }
 
@@ -154,12 +154,12 @@ export const jiraGetIssue: ToolDefinition<{ ticket: string; raw?: boolean }> = d
         const issue = normalize(raw, cfg.jira.baseUrl);
         return text(input.raw ? JSON.stringify(raw, null, 2) : render(issue), { issue: issue as unknown as Record<string, unknown> });
       } catch (err) {
-        return failure(`No mock fixture for ${key} at ${file}: ${err instanceof Error ? err.message : String(err)}`);
+        return failure(`Нет фикстуры для ${key} по пути ${file}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
 
-    if (!cfg.jira.baseUrl) return failure("JIRA_BASE_URL is not configured for the tools server.");
-    if (!cfg.jira.token) return failure("JIRA_TOKEN is not configured for the tools server.");
+    if (!cfg.jira.baseUrl) return failure("JIRA_BASE_URL не настроен для сервера инструментов.");
+    if (!cfg.jira.token) return failure("JIRA_TOKEN не настроен для сервера инструментов.");
 
     const url = `${cfg.jira.baseUrl}/rest/api/2/issue/${encodeURIComponent(key)}` +
       `?expand=renderedFields&fields=summary,description,issuetype,status,priority,assignee,reporter,labels,components,fixVersions,parent,issuelinks,comment,customfield_10100,customfield_10200,customfield_10014`;
@@ -171,11 +171,11 @@ export const jiraGetIssue: ToolDefinition<{ ticket: string; raw?: boolean }> = d
         signal: AbortSignal.timeout(20_000),
       });
     } catch (err) {
-      return failure(`Jira request failed: ${err instanceof Error ? err.message : String(err)}`);
+      return failure(`Запрос в Jira не прошёл: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    if (response.status === 404) return failure(`Jira issue ${key} not found (or not visible to this token).`);
-    if (!response.ok) return failure(`Jira responded ${response.status} ${response.statusText} for ${key}.`);
+    if (response.status === 404) return failure(`Тикет ${key} не найден или недоступен по этому токену.`);
+    if (!response.ok) return failure(`Jira ответила ${response.status} ${response.statusText} на запрос ${key}.`);
 
     const raw = await response.json();
     const issue = normalize(raw, cfg.jira.baseUrl);
@@ -185,7 +185,7 @@ export const jiraGetIssue: ToolDefinition<{ ticket: string; raw?: boolean }> = d
   },
 });
 
-/** Only exposed when this server owns the Jira integration. */
+/** Регистрируется, только если интеграцией с Jira владеет этот сервер. */
 export function jiraTools(cfg: Config): ToolDefinition<any>[] {
   return cfg.jira.provider === "external" ? [] : [jiraGetIssue];
 }

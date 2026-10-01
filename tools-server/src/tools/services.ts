@@ -16,7 +16,7 @@ function repoUrl(cfg: Config, service: string): string {
   return joined.endsWith(".git") ? joined : `${joined}.git`;
 }
 
-/** Путь проекта в API: <группа>/<сервис>. */
+/** Адрес репозитория в API: Bitbucket — КЛЮЧ/slug, остальные — группа/сервис. */
 export function projectPath(cfg: Config, service: string): string {
   return cfg.services.group ? `${cfg.services.group}/${service}` : service;
 }
@@ -72,6 +72,17 @@ function candidates(cfg: Config, service: string): string[] {
 async function fetchServiceNames(cfg: Config): Promise<string[]> {
   const s = cfg.services;
 
+  if (s.provider === "bitbucket") {
+    const url = `${s.apiUrl}/rest/api/1.0/projects/${encodeURIComponent(s.group)}/repos?limit=1000`;
+    const response = await fetch(url, {
+      headers: s.token ? { Authorization: `Bearer ${s.token}` } : {},
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${url}`);
+    const body = (await response.json()) as any;
+    return (body.values ?? []).map((r: any) => r.slug);
+  }
+
   if (s.provider === "mock") {
     const raw = JSON.parse(await fs.readFile(path.join(s.mockDir, "index.json"), "utf8"));
     return (raw.services ?? []).map(String);
@@ -102,7 +113,7 @@ export const serviceList: ToolDefinition<{ query?: string }> = defineTool({
   name: "service_list",
   title: "Список backend-сервисов",
   description:
-    "Перечислить репозитории backend-микросервисов в нашей группе. " +
+    "Перечислить репозитории backend-микросервисов в нашем проекте Bitbucket. " +
     "Используй, чтобы сверить догадку о затронутом сервисе с тем, что существует на самом деле: " +
     "имя из спецификации или тикета может отличаться от имени репозитория. " +
     "Клонировать репозиторий не нужно — это делает service_checkout.",
@@ -114,7 +125,7 @@ export const serviceList: ToolDefinition<{ query?: string }> = defineTool({
     const s = ctx.config.services;
     if (s.provider !== "mock") {
       if (!s.apiUrl) return failure("SERVICES_API_URL (или VCS_BASE_URL) не настроен.");
-      if (!s.group) return failure("SERVICES_GROUP не настроен — неизвестно, в какой группе искать сервисы.");
+      if (!s.group) return failure("SERVICES_GROUP не настроен — неизвестно, в каком проекте искать сервисы.");
     }
 
     let names: string[];
@@ -131,14 +142,14 @@ export const serviceList: ToolDefinition<{ query?: string }> = defineTool({
 
     if (!filtered.length) {
       return text(
-        `По фильтру "${input.query ?? ""}" ничего не найдено. Всего в группе ${s.group}: ${names.length} репозиториев.\n` +
+        `По фильтру "${input.query ?? ""}" ничего не найдено. Всего в проекте ${s.group}: ${names.length} репозиториев.\n` +
           "Вызови без query, чтобы увидеть весь список.",
       );
     }
 
     return text(
       [
-        `Группа ${s.group}, найдено ${filtered.length}${q ? ` по фильтру "${input.query}"` : ""}.`,
+        `Проект ${s.group}, найдено ${filtered.length}${q ? ` по фильтру "${input.query}"` : ""}.`,
         "",
         `Backend-сервисы (${s.suffix}):`,
         ...backend.map((n) => `  ${n}`),
@@ -177,7 +188,7 @@ export const serviceCheckout: ToolDefinition<{
     if (!s.gitBase) {
       return failure(
         "SERVICES_GIT_BASE не настроен — неизвестно, по какому префиксу собирать адрес репозитория.\n" +
-          'Пример: SERVICES_GIT_BASE=git@git.company.ru:backend/',
+          "Пример для Bitbucket Server: SERVICES_GIT_BASE=ssh://git@bitbucket.company.ru:7999/be/",
       );
     }
     if (!SERVICE_NAME.test(input.service.trim().replace(/\.git$/, "").replace(/^.*\//, ""))) {
@@ -264,7 +275,7 @@ export const serviceCheckout: ToolDefinition<{
         `  путь:    ${dest}`,
         `  ветка:   ${head} (${sha})`,
         `  база:    origin/${base}`,
-        `  проект:  ${projectPath(cfg, name)}`,
+        `  репо:    ${projectPath(cfg, name)}`,
         ...(notes.length ? ["", "Внимание:", ...notes.map((n) => `  ${n}`)] : []),
         "",
         "Дальше работай по этому пути: читай код, вноси правки, запускай сборку из него.",
@@ -274,6 +285,11 @@ export const serviceCheckout: ToolDefinition<{
   },
 });
 
-export function serviceTools(_cfg: Config): ToolDefinition<any>[] {
-  return [serviceList, serviceCheckout];
+/**
+ * При SERVICES_PROVIDER=external список репозиториев отдаёт внешний MCP-сервер
+ * Bitbucket. service_checkout остаётся в любом случае: он ходит обычным git,
+ * API ему не нужен.
+ */
+export function serviceTools(cfg: Config): ToolDefinition<any>[] {
+  return cfg.services.provider === "external" ? [serviceCheckout] : [serviceList, serviceCheckout];
 }

@@ -54,21 +54,22 @@ read-only: по документации более permissive `approvalMode` р
 
 ## Профили settings.json
 
-| Файл | Jira | Когда применять |
+| Файл | Jira и Bitbucket | Когда применять |
 |---|---|---|
-| `settings.local-jira.json` | `jira_get_issue` из нашего `be-tools` | нет развёрнутого Jira MCP, или нужен полный контроль над выдачей тикета |
-| `settings.jira-mcp.json` | внешние Jira и Confluence по `httpUrl` | в контуре уже есть эти MCP-серверы |
+| `settings.external.json` | внешние MCP-серверы по `httpUrl` | по умолчанию: Bitbucket и Jira уже доступны как MCP |
+| `settings.builtin.json` | `be-tools` ходит в них сам по REST | нет MCP-серверов, или нужен полный контроль над выдачей |
 
 ```bash
-./scripts/use-jira-mcp.sh local      # или external
+./scripts/use-sources.sh external    # или builtin
 ```
 
-Скрипт копирует выбранный профиль в `settings.json` и напоминает, какое
-значение `JIRA_PROVIDER` выставить в `.env`. В режиме `external` наш сервер
-не регистрирует `jira_get_issue`, конфликта имён не возникает.
+Скрипт копирует выбранный профиль в `settings.json` и печатает, какие
+значения выставить в `.env`. В режиме `external` наш сервер не регистрирует
+`jira_get_issue`, `spec_get_pr`, `spec_read_file` и `service_list` — конфликта
+имён с внешними серверами не возникает.
 
-Инструменты PR аналитики (`spec_get_pr`, `spec_read_file`) работают в обоих
-профилях.
+`service_checkout` работает в обоих режимах: он ходит обычным `git`, API ему
+не нужен.
 
 ## Почему секретов нет в settings.json
 

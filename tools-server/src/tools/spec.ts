@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Config } from "../lib/config.js";
 import { defineTool, failure, text, type ToolDefinition } from "../lib/types.js";
 
-/** Normalised shape every provider is mapped onto, so `mock` behaves identically. */
+/** Общая форма, в которую приводятся все провайдеры — чтобы `mock` вёл себя так же. */
 export interface SpecPullRequest {
   number: number;
   title: string;
@@ -14,7 +14,7 @@ export interface SpecPullRequest {
   sourceBranch: string;
   targetBranch: string;
   webUrl: string;
-  /** Jira keys mentioned anywhere in the PR — used to cross-check the ticket. */
+  /** Ключи Jira, упомянутые в PR — для сверки с переданным тикетом. */
   tickets: string[];
   files: { path: string; status: string; isSpec: boolean }[];
   discussions: { author: string; body: string; file?: string; resolved?: boolean }[];
@@ -22,10 +22,10 @@ export interface SpecPullRequest {
 
 const TICKET_IN_TEXT = /\b[A-Z][A-Z0-9_]+-\d+\b/g;
 
-/** Accepts 123, !123, #123, or a full MR/PR URL. */
+/** Принимает 123, #123, !123 или полную ссылку на pull request. */
 export function parsePrNumber(input: string): number | null {
   const trimmed = String(input).trim();
-  const fromUrl = trimmed.match(/\/(?:merge_requests|pull)\/(\d+)/);
+  const fromUrl = trimmed.match(/\/(?:pull-requests|merge_requests|pulls?)\/(\d+)/);
   const raw = fromUrl?.[1] ?? trimmed.replace(/^[!#]/, "");
   const n = Number.parseInt(raw, 10);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -51,6 +51,25 @@ async function httpJson(url: string, headers: Record<string, string>): Promise<a
   return response.json();
 }
 
+/** Bitbucket Server: projectKey/repoSlug из SPEC_PROJECT_ID. */
+function bitbucketRepo(cfg: Config): { project: string; slug: string } {
+  const [project, slug] = cfg.spec.projectId.split("/");
+  if (!project || !slug) {
+    throw new Error(`Для Bitbucket нужен SPEC_PROJECT_ID вида "КЛЮЧПРОЕКТА/repo-slug", получено "${cfg.spec.projectId}"`);
+  }
+  return { project, slug };
+}
+
+/** Токен необязателен: локальный Bitbucket может быть доступен без авторизации. */
+function bitbucketHeaders(cfg: Config): Record<string, string> {
+  return cfg.spec.token ? { Authorization: `Bearer ${cfg.spec.token}` } : {};
+}
+
+function bitbucketApi(cfg: Config): string {
+  const { project, slug } = bitbucketRepo(cfg);
+  return `${cfg.spec.baseUrl}/rest/api/1.0/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(slug)}`;
+}
+
 function gitlabHeaders(cfg: Config): Record<string, string> {
   return { "PRIVATE-TOKEN": cfg.spec.token };
 }
@@ -64,6 +83,54 @@ function projectPath(cfg: Config): string {
 }
 
 // ───────────────────────────── providers ─────────────────────────────
+
+async function fetchBitbucket(cfg: Config, n: number): Promise<SpecPullRequest> {
+  const base = bitbucketApi(cfg);
+  const headers = bitbucketHeaders(cfg);
+
+  const pr = await httpJson(`${base}/pull-requests/${n}`, headers);
+  const changes = await httpJson(`${base}/pull-requests/${n}/changes?limit=1000`, headers);
+  const activities = await httpJson(`${base}/pull-requests/${n}/activities?limit=100`, headers).catch(() => ({ values: [] }));
+
+  const STATUS: Record<string, string> = { ADD: "added", MODIFY: "modified", DELETE: "deleted", MOVE: "renamed", COPY: "added" };
+  const files = (changes.values ?? []).map((c: any) => {
+    const filePath = c.path?.toString ?? c.path?.toString?.() ?? String(c.path ?? "");
+    return { path: filePath, status: STATUS[c.type] ?? String(c.type ?? "modified").toLowerCase(), isSpec: isSpecFile(filePath, cfg) };
+  });
+
+  // Комментарии лежат в ленте активностей; ответы вложены в comment.comments.
+  const discussions: SpecPullRequest["discussions"] = [];
+  const walk = (comment: any, file?: string) => {
+    if (!comment) return;
+    discussions.push({
+      author: comment.author?.displayName ?? "",
+      body: String(comment.text ?? "").trim(),
+      file,
+      // В Bitbucket Server «нерешённость» выражена открытой задачей на комментарии.
+      resolved: comment.severity === "BLOCKER" ? comment.state === "RESOLVED" : undefined,
+    });
+    for (const reply of comment.comments ?? []) walk(reply, file);
+  };
+  for (const a of activities.values ?? []) {
+    if (a.action !== "COMMENTED") continue;
+    walk(a.comment, a.commentAnchor?.path);
+  }
+
+  const source = pr.fromRef?.displayId ?? "";
+  return {
+    number: pr.id,
+    title: pr.title ?? "",
+    description: pr.description ?? "",
+    author: pr.author?.user?.displayName ?? "",
+    state: pr.draft ? "draft" : String(pr.state ?? "").toLowerCase(),
+    sourceBranch: source,
+    targetBranch: pr.toRef?.displayId ?? "",
+    webUrl: pr.links?.self?.[0]?.href ?? "",
+    tickets: collectTickets(pr.title ?? "", pr.description ?? "", source),
+    files,
+    discussions,
+  };
+}
 
 async function fetchGitlab(cfg: Config, n: number): Promise<SpecPullRequest> {
   const base = `${cfg.spec.baseUrl}/api/v4/projects/${projectPath(cfg)}/merge_requests/${n}`;
@@ -167,13 +234,22 @@ async function fetchPr(cfg: Config, n: number): Promise<SpecPullRequest> {
     case "mock": return fetchMock(cfg, n);
     case "github": return fetchGithub(cfg, n);
     case "gitlab": return fetchGitlab(cfg, n);
-    default: throw new Error(`SPEC_PROVIDER="${cfg.spec.provider}" is not supported yet. Add it with tool_create.`);
+    case "bitbucket": return fetchBitbucket(cfg, n);
+    default: throw new Error(`SPEC_PROVIDER="${cfg.spec.provider}" не поддерживается. Добавь провайдер через tool_create.`);
   }
 }
 
 // ───────────────────────────── file bodies ─────────────────────────────
 
 async function readFileContent(cfg: Config, pr: SpecPullRequest, filePath: string): Promise<string> {
+  if (cfg.spec.provider === "bitbucket") {
+    const url = `${bitbucketApi(cfg)}/raw/${filePath.split("/").map(encodeURIComponent).join("/")}` +
+      `?at=${encodeURIComponent(`refs/heads/${pr.sourceBranch}`)}`;
+    const response = await fetch(url, { headers: bitbucketHeaders(cfg), signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${filePath}`);
+    return response.text();
+  }
+
   if (cfg.spec.provider === "mock") {
     const raw = JSON.parse(await fs.readFile(path.join(cfg.spec.mockDir, `${pr.number}.json`), "utf8"));
     const found = (raw.files ?? []).find((f: any) => f.path === filePath);
@@ -201,6 +277,16 @@ async function readFileContent(cfg: Config, pr: SpecPullRequest, filePath: strin
 }
 
 async function readFileDiff(cfg: Config, pr: SpecPullRequest, filePath: string): Promise<string> {
+  if (cfg.spec.provider === "bitbucket") {
+    const url = `${bitbucketApi(cfg)}/pull-requests/${pr.number}.diff?path=${encodeURIComponent(filePath)}&contextLines=3`;
+    const response = await fetch(url, {
+      headers: { ...bitbucketHeaders(cfg), Accept: "text/plain" },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${filePath}`);
+    return response.text();
+  }
+
   if (cfg.spec.provider === "mock") {
     const raw = JSON.parse(await fs.readFile(path.join(cfg.spec.mockDir, `${pr.number}.json`), "utf8"));
     const found = (raw.files ?? []).find((f: any) => f.path === filePath);
@@ -232,7 +318,7 @@ function render(pr: SpecPullRequest, cfg: Config): string {
   const section = (title: string, body: string) => (body.trim() ? `\n## ${title}\n${body.trim()}\n` : "");
 
   return [
-    `# Spec PR ${cfg.spec.provider === "github" ? "#" : "!"}${pr.number}: ${pr.title}`,
+    `# PR аналитики #${pr.number}: ${pr.title}`,
     "",
     [
       `state: ${pr.state}`,
@@ -266,17 +352,17 @@ export const specGetPr: ToolDefinition<{ pr: string | number }> = defineTool({
   name: "spec_get_pr",
   title: "Read the analytics spec PR",
   description:
-    "Прочитать pull/merge request в репозитории аналитики (SA specification). Возвращает заголовок, описание, " +
+    "Прочитать pull request в репозитории аналитики (SA specification). Возвращает заголовок, описание, " +
     "ветки, упомянутые тикеты, список изменённых файлов спецификации и обсуждение. " +
     "Это главный источник требований: мы работаем spec-driven, и именно PR аналитики описывает, что нужно сделать. " +
     "Тела файлов читай отдельно через spec_read_file.",
   annotations: { readOnlyHint: true, openWorldHint: true },
   inputSchema: z.object({
-    pr: z.union([z.string(), z.number()]).describe("Номер PR/MR: 456, !456, #456 или полная ссылка на него."),
+    pr: z.union([z.string(), z.number()]).describe("Id pull request: 456, #456 или полная ссылка на него."),
   }),
   async handler(input, ctx) {
     const n = parsePrNumber(String(input.pr));
-    if (n === null) return failure(`"${input.pr}" не похоже на номер PR. Ожидается число, !123, #123 или ссылка.`);
+    if (n === null) return failure(`"${input.pr}" не похоже на id pull request. Ожидается число, #123 или ссылка.`);
 
     const cfg = ctx.config;
     if (cfg.spec.provider !== "mock") {
@@ -306,13 +392,13 @@ export const specReadFile: ToolDefinition<{ pr: string | number; path: string; m
     "Требования берутся из полного текста файла; diff показывает, что именно аналитик поменял в этой итерации.",
   annotations: { readOnlyHint: true, openWorldHint: true },
   inputSchema: z.object({
-    pr: z.union([z.string(), z.number()]).describe("Номер PR/MR в репозитории аналитики."),
+    pr: z.union([z.string(), z.number()]).describe("Id pull request в репозитории аналитики."),
     path: z.string().describe("Путь к файлу ровно как он указан в списке файлов spec_get_pr."),
     mode: z.enum(["content", "diff"]).optional().describe("content — весь файл из ветки PR (по умолчанию); diff — только изменения."),
   }),
   async handler(input, ctx) {
     const n = parsePrNumber(String(input.pr));
-    if (n === null) return failure(`"${input.pr}" не похоже на номер PR.`);
+    if (n === null) return failure(`"${input.pr}" не похоже на id pull request.`);
 
     const cfg = ctx.config;
     let pr: SpecPullRequest;
@@ -350,6 +436,7 @@ export const specReadFile: ToolDefinition<{ pr: string | number; path: string; m
   },
 });
 
-export function specTools(_cfg: Config): ToolDefinition<any>[] {
-  return [specGetPr, specReadFile];
+/** При SPEC_PROVIDER=external спецификацию читает внешний MCP-сервер Bitbucket. */
+export function specTools(cfg: Config): ToolDefinition<any>[] {
+  return cfg.spec.provider === "external" ? [] : [specGetPr, specReadFile];
 }

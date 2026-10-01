@@ -7,7 +7,7 @@ export class ToolRegistry {
   register(tool: ToolDefinition<any>, source: "builtin" | "dynamic" = "builtin"): void {
     const existing = this.#tools.get(tool.name);
     if (existing && existing.source === "builtin" && source === "dynamic") {
-      throw new Error(`tool "${tool.name}" collides with a built-in tool; pick another name`);
+      throw new Error(`имя "${tool.name}" занято встроенным инструментом, выбери другое`);
     }
     this.#tools.set(tool.name, { ...tool, source });
   }
@@ -16,7 +16,7 @@ export class ToolRegistry {
     return this.#tools.delete(name);
   }
 
-  /** Drops every tool loaded from the dynamic directory, keeping built-ins. */
+  /** Выбрасывает инструменты из каталога dynamic, встроенные остаются. */
   clearDynamic(): void {
     for (const [name, tool] of this.#tools) {
       if (tool.source === "dynamic") this.#tools.delete(name);
@@ -35,7 +35,7 @@ export class ToolRegistry {
     return this.names().map((n) => this.#tools.get(n)!);
   }
 
-  /** MCP `tools/list` payload. */
+  /** Полезная нагрузка для MCP `tools/list`. */
   describe() {
     return this.all().map((tool) => ({
       name: tool.name,
