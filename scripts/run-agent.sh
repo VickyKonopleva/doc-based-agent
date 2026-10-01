@@ -69,15 +69,14 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
   set -a; source "$PROJECT_ROOT/.env"; set +a
 fi
 
-if [[ -z "${SERVICES_GIT_BASE:-}" ]]; then
-  echo "error: SERVICES_GIT_BASE не задан в .env" >&2
-  echo "       Агент сам определяет затронутые сервисы и достраивает адрес из этого префикса." >&2
-  echo "       Пример: SERVICES_GIT_BASE=ssh://git@bitbucket.company.ru:7999/be/" >&2
+if [[ ! -f "$PROJECT_ROOT/.gigacode/GIGACODE.local.md" ]]; then
+  echo "error: нет .gigacode/GIGACODE.local.md" >&2
+  echo "       Там лежат адреса Bitbucket, Nexus и префикс репозиториев сервисов." >&2
+  echo "       Создайте его из .gigacode/GIGACODE.local.md.example" >&2
   exit 1
 fi
 
-echo "[run-agent] spec repo: ${SPEC_PROJECT_ID:-(не настроен)} @ ${SPEC_BASE_URL:-?}" >&2
-echo "[run-agent] services:  ${SERVICES_GIT_BASE}<имя>${SERVICES_SUFFIX:--be} → ${WORKSPACES_DIR:-workspaces}/" >&2
+echo "[run-agent] spec repo: ${SPEC_PROJECT_ID:-(внешний MCP)} @ ${SPEC_BASE_URL:-?}" >&2
 echo "[run-agent] command:   $COMMAND" >&2
 
 GIGACODE_BIN="${GIGACODE_BIN:-gigacode}"

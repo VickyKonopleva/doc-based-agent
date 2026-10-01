@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { Config } from "../lib/config.js";
 import { defineTool, failure, text, type ToolDefinition } from "../lib/types.js";
 
-/** Общая форма, в которую приводятся все провайдеры — чтобы `mock` вёл себя так же. */
+/** Общая форма, в которую приводится PR — чтобы `mock` вёл себя как настоящий Bitbucket. */
 export interface SpecPullRequest {
   number: number;
   title: string;
@@ -22,11 +22,11 @@ export interface SpecPullRequest {
 
 const TICKET_IN_TEXT = /\b[A-Z][A-Z0-9_]+-\d+\b/g;
 
-/** Принимает 123, #123, !123 или полную ссылку на pull request. */
+/** Принимает 123, #123 или полную ссылку на pull request. */
 export function parsePrNumber(input: string): number | null {
   const trimmed = String(input).trim();
-  const fromUrl = trimmed.match(/\/(?:pull-requests|merge_requests|pulls?)\/(\d+)/);
-  const raw = fromUrl?.[1] ?? trimmed.replace(/^[!#]/, "");
+  const fromUrl = trimmed.match(/\/pull-requests\/(\d+)/);
+  const raw = fromUrl?.[1] ?? trimmed.replace(/^#/, "");
   const n = Number.parseInt(raw, 10);
   return Number.isInteger(n) && n > 0 ? n : null;
 }
@@ -42,60 +42,59 @@ function collectTickets(...texts: string[]): string[] {
   return [...found].sort();
 }
 
-async function httpJson(url: string, headers: Record<string, string>): Promise<any> {
-  const response = await fetch(url, { headers: { Accept: "application/json", ...headers }, signal: AbortSignal.timeout(30_000) });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(`${response.status} ${response.statusText} for ${url}${body ? ` — ${body.slice(0, 300)}` : ""}`);
-  }
-  return response.json();
-}
+// ───────────────────────────── Bitbucket Server ─────────────────────────────
 
-/** Bitbucket Server: projectKey/repoSlug из SPEC_PROJECT_ID. */
-function bitbucketRepo(cfg: Config): { project: string; slug: string } {
+/** SPEC_PROJECT_ID задаётся как КЛЮЧПРОЕКТА/repo-slug. */
+function repoCoords(cfg: Config): { project: string; slug: string } {
   const [project, slug] = cfg.spec.projectId.split("/");
   if (!project || !slug) {
-    throw new Error(`Для Bitbucket нужен SPEC_PROJECT_ID вида "КЛЮЧПРОЕКТА/repo-slug", получено "${cfg.spec.projectId}"`);
+    throw new Error(`SPEC_PROJECT_ID должен быть вида "КЛЮЧПРОЕКТА/repo-slug", получено "${cfg.spec.projectId}"`);
   }
   return { project, slug };
 }
 
 /** Токен необязателен: локальный Bitbucket может быть доступен без авторизации. */
-function bitbucketHeaders(cfg: Config): Record<string, string> {
+function headers(cfg: Config): Record<string, string> {
   return cfg.spec.token ? { Authorization: `Bearer ${cfg.spec.token}` } : {};
 }
 
-function bitbucketApi(cfg: Config): string {
-  const { project, slug } = bitbucketRepo(cfg);
+function api(cfg: Config): string {
+  const { project, slug } = repoCoords(cfg);
   return `${cfg.spec.baseUrl}/rest/api/1.0/projects/${encodeURIComponent(project)}/repos/${encodeURIComponent(slug)}`;
 }
 
-function gitlabHeaders(cfg: Config): Record<string, string> {
-  return { "PRIVATE-TOKEN": cfg.spec.token };
+async function httpJson(url: string, h: Record<string, string>): Promise<any> {
+  const response = await fetch(url, { headers: { Accept: "application/json", ...h }, signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new Error(`${response.status} ${response.statusText} для ${url}${body ? ` — ${body.slice(0, 300)}` : ""}`);
+  }
+  return response.json();
 }
 
-function githubHeaders(cfg: Config): Record<string, string> {
-  return { Authorization: `Bearer ${cfg.spec.token}`, Accept: "application/vnd.github+json" };
-}
-
-function projectPath(cfg: Config): string {
-  return encodeURIComponent(cfg.spec.projectId);
-}
-
-// ───────────────────────────── providers ─────────────────────────────
+const FILE_STATUS: Record<string, string> = {
+  ADD: "added",
+  MODIFY: "modified",
+  DELETE: "deleted",
+  MOVE: "renamed",
+  COPY: "added",
+};
 
 async function fetchBitbucket(cfg: Config, n: number): Promise<SpecPullRequest> {
-  const base = bitbucketApi(cfg);
-  const headers = bitbucketHeaders(cfg);
+  const base = api(cfg);
+  const h = headers(cfg);
 
-  const pr = await httpJson(`${base}/pull-requests/${n}`, headers);
-  const changes = await httpJson(`${base}/pull-requests/${n}/changes?limit=1000`, headers);
-  const activities = await httpJson(`${base}/pull-requests/${n}/activities?limit=100`, headers).catch(() => ({ values: [] }));
+  const pr = await httpJson(`${base}/pull-requests/${n}`, h);
+  const changes = await httpJson(`${base}/pull-requests/${n}/changes?limit=1000`, h);
+  const activities = await httpJson(`${base}/pull-requests/${n}/activities?limit=100`, h).catch(() => ({ values: [] }));
 
-  const STATUS: Record<string, string> = { ADD: "added", MODIFY: "modified", DELETE: "deleted", MOVE: "renamed", COPY: "added" };
   const files = (changes.values ?? []).map((c: any) => {
-    const filePath = c.path?.toString ?? c.path?.toString?.() ?? String(c.path ?? "");
-    return { path: filePath, status: STATUS[c.type] ?? String(c.type ?? "modified").toLowerCase(), isSpec: isSpecFile(filePath, cfg) };
+    const filePath = c.path?.toString ?? String(c.path ?? "");
+    return {
+      path: filePath,
+      status: FILE_STATUS[c.type] ?? String(c.type ?? "modified").toLowerCase(),
+      isSpec: isSpecFile(filePath, cfg),
+    };
   });
 
   // Комментарии лежат в ленте активностей; ответы вложены в comment.comments.
@@ -106,7 +105,7 @@ async function fetchBitbucket(cfg: Config, n: number): Promise<SpecPullRequest> 
       author: comment.author?.displayName ?? "",
       body: String(comment.text ?? "").trim(),
       file,
-      // В Bitbucket Server «нерешённость» выражена открытой задачей на комментарии.
+      // «Нерешённость» в Bitbucket Server выражена открытой задачей на комментарии.
       resolved: comment.severity === "BLOCKER" ? comment.state === "RESOLVED" : undefined,
     });
     for (const reply of comment.comments ?? []) walk(reply, file);
@@ -132,187 +131,70 @@ async function fetchBitbucket(cfg: Config, n: number): Promise<SpecPullRequest> 
   };
 }
 
-async function fetchGitlab(cfg: Config, n: number): Promise<SpecPullRequest> {
-  const base = `${cfg.spec.baseUrl}/api/v4/projects/${projectPath(cfg)}/merge_requests/${n}`;
-  const mr = await httpJson(base, gitlabHeaders(cfg));
-  const changes = await httpJson(`${base}/changes`, gitlabHeaders(cfg));
-  const discussions = await httpJson(`${base}/discussions`, gitlabHeaders(cfg)).catch(() => []);
-
-  const files = (changes.changes ?? []).map((c: any) => ({
-    path: c.new_path ?? c.old_path,
-    status: c.new_file ? "added" : c.deleted_file ? "deleted" : c.renamed_file ? "renamed" : "modified",
-    isSpec: isSpecFile(c.new_path ?? c.old_path, cfg),
-  }));
-
-  const notes = (discussions as any[]).flatMap((d) =>
-    (d.notes ?? [])
-      .filter((note: any) => !note.system)
-      .map((note: any) => ({
-        author: note.author?.name ?? "",
-        body: String(note.body ?? "").trim(),
-        file: note.position?.new_path,
-        resolved: note.resolved ?? undefined,
-      })),
-  );
-
-  return {
-    number: mr.iid,
-    title: mr.title ?? "",
-    description: mr.description ?? "",
-    author: mr.author?.name ?? "",
-    state: mr.state ?? "",
-    sourceBranch: mr.source_branch ?? "",
-    targetBranch: mr.target_branch ?? "",
-    webUrl: mr.web_url ?? "",
-    tickets: collectTickets(mr.title ?? "", mr.description ?? "", mr.source_branch ?? ""),
-    files,
-    discussions: notes,
-  };
-}
-
-function githubRepo(cfg: Config): { owner: string; repo: string } {
-  const [owner, repo] = cfg.spec.projectId.split("/");
-  if (!owner || !repo) throw new Error(`SPEC_PROJECT_ID must be "owner/repo" for GitHub, got "${cfg.spec.projectId}"`);
-  return { owner, repo };
-}
-
-async function fetchGithub(cfg: Config, n: number): Promise<SpecPullRequest> {
-  const { owner, repo } = githubRepo(cfg);
-  const base = `${cfg.spec.baseUrl}/repos/${owner}/${repo}`;
-  const pr = await httpJson(`${base}/pulls/${n}`, githubHeaders(cfg));
-  const files = await httpJson(`${base}/pulls/${n}/files?per_page=100`, githubHeaders(cfg));
-  const comments = await httpJson(`${base}/issues/${n}/comments?per_page=100`, githubHeaders(cfg)).catch(() => []);
-  const reviewComments = await httpJson(`${base}/pulls/${n}/comments?per_page=100`, githubHeaders(cfg)).catch(() => []);
-
-  return {
-    number: pr.number,
-    title: pr.title ?? "",
-    description: pr.body ?? "",
-    author: pr.user?.login ?? "",
-    state: pr.draft ? "draft" : (pr.state ?? ""),
-    sourceBranch: pr.head?.ref ?? "",
-    targetBranch: pr.base?.ref ?? "",
-    webUrl: pr.html_url ?? "",
-    tickets: collectTickets(pr.title ?? "", pr.body ?? "", pr.head?.ref ?? ""),
-    files: (files as any[]).map((f) => ({ path: f.filename, status: f.status, isSpec: isSpecFile(f.filename, cfg) })),
-    discussions: [
-      ...(comments as any[]).map((c) => ({ author: c.user?.login ?? "", body: String(c.body ?? "").trim() })),
-      ...(reviewComments as any[]).map((c) => ({
-        author: c.user?.login ?? "",
-        body: String(c.body ?? "").trim(),
-        file: c.path,
-      })),
-    ],
-  };
-}
-
 async function fetchMock(cfg: Config, n: number): Promise<SpecPullRequest> {
-  const file = path.join(cfg.spec.mockDir, `${n}.json`);
-  const raw = JSON.parse(await fs.readFile(file, "utf8"));
-  const files = (raw.files ?? []).map((f: any) => ({
-    path: f.path,
-    status: f.status ?? "modified",
-    isSpec: isSpecFile(f.path, cfg),
-  }));
+  const raw = JSON.parse(await fs.readFile(path.join(cfg.spec.mockDir, `${n}.json`), "utf8"));
   return {
     number: raw.number ?? n,
     title: raw.title ?? "",
     description: raw.description ?? "",
     author: raw.author ?? "",
-    state: raw.state ?? "opened",
+    state: raw.state ?? "open",
     sourceBranch: raw.sourceBranch ?? "",
     targetBranch: raw.targetBranch ?? "",
     webUrl: raw.webUrl ?? "",
     tickets: collectTickets(raw.title ?? "", raw.description ?? "", raw.sourceBranch ?? ""),
-    files,
+    files: (raw.files ?? []).map((f: any) => ({
+      path: f.path,
+      status: f.status ?? "modified",
+      isSpec: isSpecFile(f.path, cfg),
+    })),
     discussions: raw.discussions ?? [],
   };
 }
 
 async function fetchPr(cfg: Config, n: number): Promise<SpecPullRequest> {
-  switch (cfg.spec.provider) {
-    case "mock": return fetchMock(cfg, n);
-    case "github": return fetchGithub(cfg, n);
-    case "gitlab": return fetchGitlab(cfg, n);
-    case "bitbucket": return fetchBitbucket(cfg, n);
-    default: throw new Error(`SPEC_PROVIDER="${cfg.spec.provider}" не поддерживается. Добавь провайдер через tool_create.`);
-  }
+  if (cfg.spec.provider === "mock") return fetchMock(cfg, n);
+  if (cfg.spec.provider === "bitbucket") return fetchBitbucket(cfg, n);
+  throw new Error(`SPEC_PROVIDER="${cfg.spec.provider}" не поддерживается этим сервером.`);
 }
 
-// ───────────────────────────── file bodies ─────────────────────────────
+// ───────────────────────────── содержимое файлов ─────────────────────────────
 
 async function readFileContent(cfg: Config, pr: SpecPullRequest, filePath: string): Promise<string> {
-  if (cfg.spec.provider === "bitbucket") {
-    const url = `${bitbucketApi(cfg)}/raw/${filePath.split("/").map(encodeURIComponent).join("/")}` +
-      `?at=${encodeURIComponent(`refs/heads/${pr.sourceBranch}`)}`;
-    const response = await fetch(url, { headers: bitbucketHeaders(cfg), signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${filePath}`);
-    return response.text();
-  }
-
   if (cfg.spec.provider === "mock") {
     const raw = JSON.parse(await fs.readFile(path.join(cfg.spec.mockDir, `${pr.number}.json`), "utf8"));
     const found = (raw.files ?? []).find((f: any) => f.path === filePath);
-    if (!found) throw new Error(`file "${filePath}" is not part of PR ${pr.number}`);
+    if (!found) throw new Error(`файла "${filePath}" нет в PR ${pr.number}`);
     return String(found.content ?? "");
   }
 
-  if (cfg.spec.provider === "gitlab") {
-    const url =
-      `${cfg.spec.baseUrl}/api/v4/projects/${projectPath(cfg)}/repository/files/` +
-      `${encodeURIComponent(filePath)}/raw?ref=${encodeURIComponent(pr.sourceBranch)}`;
-    const response = await fetch(url, { headers: gitlabHeaders(cfg), signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${filePath}`);
-    return response.text();
-  }
-
-  const { owner, repo } = githubRepo(cfg);
-  const url = `${cfg.spec.baseUrl}/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(pr.sourceBranch)}`;
-  const response = await fetch(url, {
-    headers: { ...githubHeaders(cfg), Accept: "application/vnd.github.raw" },
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${filePath}`);
+  const url =
+    `${api(cfg)}/raw/${filePath.split("/").map(encodeURIComponent).join("/")}` +
+    `?at=${encodeURIComponent(`refs/heads/${pr.sourceBranch}`)}`;
+  const response = await fetch(url, { headers: headers(cfg), signal: AbortSignal.timeout(30_000) });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${filePath}`);
   return response.text();
 }
 
 async function readFileDiff(cfg: Config, pr: SpecPullRequest, filePath: string): Promise<string> {
-  if (cfg.spec.provider === "bitbucket") {
-    const url = `${bitbucketApi(cfg)}/pull-requests/${pr.number}.diff?path=${encodeURIComponent(filePath)}&contextLines=3`;
-    const response = await fetch(url, {
-      headers: { ...bitbucketHeaders(cfg), Accept: "text/plain" },
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${filePath}`);
-    return response.text();
-  }
-
   if (cfg.spec.provider === "mock") {
     const raw = JSON.parse(await fs.readFile(path.join(cfg.spec.mockDir, `${pr.number}.json`), "utf8"));
     const found = (raw.files ?? []).find((f: any) => f.path === filePath);
     return String(found?.diff ?? "(фикстура не содержит diff для этого файла)");
   }
 
-  if (cfg.spec.provider === "gitlab") {
-    const changes = await httpJson(
-      `${cfg.spec.baseUrl}/api/v4/projects/${projectPath(cfg)}/merge_requests/${pr.number}/changes`,
-      gitlabHeaders(cfg),
-    );
-    const found = (changes.changes ?? []).find((c: any) => (c.new_path ?? c.old_path) === filePath);
-    if (!found) throw new Error(`file "${filePath}" is not part of MR !${pr.number}`);
-    return String(found.diff ?? "");
-  }
-
-  const { owner, repo } = githubRepo(cfg);
-  const files = await httpJson(`${cfg.spec.baseUrl}/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`, githubHeaders(cfg));
-  const found = (files as any[]).find((f) => f.filename === filePath);
-  if (!found) throw new Error(`file "${filePath}" is not part of PR #${pr.number}`);
-  return String(found.patch ?? "(binary or too large to diff)");
+  const url = `${api(cfg)}/pull-requests/${pr.number}.diff?path=${encodeURIComponent(filePath)}&contextLines=3`;
+  const response = await fetch(url, {
+    headers: { ...headers(cfg), Accept: "text/plain" },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText} для ${filePath}`);
+  return response.text();
 }
 
-// ───────────────────────────── rendering ─────────────────────────────
+// ───────────────────────────── вывод ─────────────────────────────
 
-function render(pr: SpecPullRequest, cfg: Config): string {
+function render(pr: SpecPullRequest): string {
   const specFiles = pr.files.filter((f) => f.isSpec);
   const otherFiles = pr.files.filter((f) => !f.isSpec);
   const section = (title: string, body: string) => (body.trim() ? `\n## ${title}\n${body.trim()}\n` : "");
@@ -321,11 +203,11 @@ function render(pr: SpecPullRequest, cfg: Config): string {
     `# PR аналитики #${pr.number}: ${pr.title}`,
     "",
     [
-      `state: ${pr.state}`,
-      `author: ${pr.author}`,
-      `source: ${pr.sourceBranch} → ${pr.targetBranch}`,
-      pr.tickets.length ? `tickets mentioned: ${pr.tickets.join(", ")}` : "tickets mentioned: (none)",
-      pr.webUrl ? `url: ${pr.webUrl}` : "",
+      `состояние: ${pr.state}`,
+      `автор: ${pr.author}`,
+      `ветки: ${pr.sourceBranch} → ${pr.targetBranch}`,
+      pr.tickets.length ? `упомянутые тикеты: ${pr.tickets.join(", ")}` : "упомянутые тикеты: (нет)",
+      pr.webUrl ? `ссылка: ${pr.webUrl}` : "",
     ].filter(Boolean).join("\n"),
     section("Описание PR", pr.description || "_(пусто)_"),
     section(
@@ -346,11 +228,11 @@ function render(pr: SpecPullRequest, cfg: Config): string {
   ].join("\n");
 }
 
-// ───────────────────────────── tools ─────────────────────────────
+// ───────────────────────────── инструменты ─────────────────────────────
 
 export const specGetPr: ToolDefinition<{ pr: string | number }> = defineTool({
   name: "spec_get_pr",
-  title: "Read the analytics spec PR",
+  title: "PR аналитики",
   description:
     "Прочитать pull request в репозитории аналитики (SA specification). Возвращает заголовок, описание, " +
     "ветки, упомянутые тикеты, список изменённых файлов спецификации и обсуждение. " +
@@ -367,7 +249,6 @@ export const specGetPr: ToolDefinition<{ pr: string | number }> = defineTool({
     const cfg = ctx.config;
     if (cfg.spec.provider !== "mock") {
       if (!cfg.spec.baseUrl) return failure("SPEC_BASE_URL не настроен для сервера инструментов.");
-      if (!cfg.spec.token) return failure("SPEC_TOKEN не настроен для сервера инструментов.");
       if (!cfg.spec.projectId) return failure("SPEC_PROJECT_ID (репозиторий аналитики) не настроен.");
     }
 
@@ -379,13 +260,13 @@ export const specGetPr: ToolDefinition<{ pr: string | number }> = defineTool({
     }
 
     ctx.logger.info("spec pr fetched", { number: pr.number, files: pr.files.length, tickets: pr.tickets });
-    return text(render(pr, cfg), { pr: pr as unknown as Record<string, unknown> });
+    return text(render(pr), { pr: pr as unknown as Record<string, unknown> });
   },
 });
 
 export const specReadFile: ToolDefinition<{ pr: string | number; path: string; mode?: "content" | "diff" }> = defineTool({
   name: "spec_read_file",
-  title: "Read a file from the spec PR",
+  title: "Файл спецификации",
   description:
     "Прочитать файл спецификации в том виде, в котором он лежит в ветке PR аналитики (mode=content, по умолчанию), " +
     "или только его изменения в этом PR (mode=diff). " +

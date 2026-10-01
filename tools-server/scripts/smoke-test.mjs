@@ -10,33 +10,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_ROOT = path.resolve(SERVER_DIR, "..");
-
-// Настоящий bare-репозиторий на диске: service_checkout клонирует его по-настоящему,
-// так что проверяется и сборка адреса из префикса, и git-часть.
-const SERVICES_ROOT = path.join(SERVER_DIR, ".cache", "services-test");
-const WORKSPACES = path.join(SERVER_DIR, ".cache", "workspaces-test");
-function seedServiceRepo(name) {
-  const bare = path.join(SERVICES_ROOT, `${name}.git`);
-  const seed = path.join(SERVICES_ROOT, `${name}-seed`);
-  const git = (args, cwd) => execFileSync("git", args, { cwd, stdio: "pipe" });
-  // Только синхронное удаление: промис от fs.rm разрешился бы уже после git init
-  // и снёс бы только что созданный репозиторий.
-  execFileSync("rm", ["-rf", SERVICES_ROOT, WORKSPACES]);
-  execFileSync("mkdir", ["-p", SERVICES_ROOT]);
-  git(["init", "--bare", "-b", "master", bare]);
-  git(["clone", bare, seed]);
-  execFileSync("sh", ["-c", `echo 'service ${name}' > "${seed}/README.md"`]);
-  git(["add", "-A"], seed);
-  git(["-c", "user.email=smoke@test", "-c", "user.name=Smoke", "commit", "-m", "init"], seed);
-  git(["push", "origin", "master"], seed);
-  execFileSync("rm", ["-rf", seed]);
-}
-seedServiceRepo("payment-be");
 
 let failures = 0;
 const check = (ok, label, detail = "") => {
@@ -57,17 +34,6 @@ const transport = new StdioClientTransport({
     SPEC_PROVIDER: "mock",
     SPEC_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "spec"),
     GIGACODE_DIR: path.join(SERVER_DIR, ".cache", "gigacode-test"),
-    SERVICES_PROVIDER: "mock",
-    SERVICES_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "services"),
-    SERVICES_GIT_BASE: SERVICES_ROOT + "/",
-    SERVICES_GROUP: "backend",
-    SERVICES_SUFFIX: "-be",
-    SERVICES_DEFAULT_BRANCH: "master",
-    WORKSPACES_DIR: WORKSPACES,
-    NEXUS_URL: "https://nexus.example/",
-    NEXUS_REPOSITORY: "maven-releases",
-    NEXUS_ARTIFACT_SUFFIXES: "-api,-roles-pprb",
-    NEXUS_TOKEN: "s3cret-nexus-token",
     LOG_LEVEL: "warn",
   },
   stderr: "inherit",
@@ -80,25 +46,13 @@ console.log("\n== tools/list ==");
 const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();
 console.log(`  ${names.join(", ")}`);
-for (const expected of ["agent_context", "docs_read", "docs_search", "jira_get_issue", "spec_get_pr", "spec_read_file", "service_list", "service_checkout", "skill_create", "tool_create", "tool_list", "tool_template", "create_pull_request"]) {
+for (const expected of ["docs_read", "docs_search", "jira_get_issue", "spec_get_pr", "spec_read_file", "skill_create", "tool_create", "tool_list", "tool_template"]) {
   check(names.includes(expected), `инструмент ${expected} объявлен`);
 }
 check(
   tools.every((t) => t.inputSchema && t.inputSchema.type === "object"),
   "у каждого инструмента объектная схема аргументов",
 );
-
-console.log("\n== окружение ==");
-const env = await client.callTool({ name: "agent_context", arguments: {} });
-const envText = textOf(env);
-check(envText.includes("https://nexus.example"), "agent_context сообщает адрес Nexus");
-check(envText.includes("<сервис>-be-api") && envText.includes("<сервис>-be-roles-pprb"),
-  "правило именования артефактов выведено из суффиксов сервиса");
-check(envText.includes(WORKSPACES), "agent_context сообщает, куда кладутся рабочие копии");
-check(!envText.includes("s3cret-nexus-token") && envText.includes("токен задан"),
-  "значение токена не раскрывается, сообщается только факт его наличия");
-check(envText.includes("REST API") && envText.includes("maven-metadata.xml"),
-  "agent_context подсказывает направления поиска, но не предписывает способ");
 
 console.log("\n== база знаний ==");
 const catalogue = await client.callTool({ name: "docs_read", arguments: {} });
@@ -130,7 +84,7 @@ const badKey = await client.callTool({ name: "jira_get_issue", arguments: { tick
 check(badKey.isError === true, "jira_get_issue отвергает неверный ключ тикета");
 
 console.log("\n== PR аналитики (фикстура) ==");
-const specPr = await client.callTool({ name: "spec_get_pr", arguments: { pr: "!456" } });
+const specPr = await client.callTool({ name: "spec_get_pr", arguments: { pr: "#456" } });
 const specText = textOf(specPr);
 check(specText.includes("PR аналитики #456"), "spec_get_pr принимает #456 и нормализует id");
 check(specText.includes("BACK-1234"), "тикет, упомянутый в PR аналитики, виден агенту");
@@ -164,37 +118,6 @@ check(textOf(specMissing).includes("callback-retry.md"), "в ошибке пер
 
 const specBadPr = await client.callTool({ name: "spec_get_pr", arguments: { pr: "abc" } });
 check(specBadPr.isError === true, "spec_get_pr отвергает неверную ссылку на PR");
-
-console.log("\n== сервисы ==");
-const svcAll = await client.callTool({ name: "service_list", arguments: {} });
-const svcAllText = textOf(svcAll);
-check(svcAllText.includes("payment-be"), "service_list возвращает backend-сервисы");
-check(svcAllText.includes("Прочие репозитории"), "репозитории без суффикса -be вынесены отдельно");
-check(svcAllText.indexOf("payment-be") < svcAllText.indexOf("legacy-billing"), "backend-сервисы идут первыми");
-
-const svcFiltered = await client.callTool({ name: "service_list", arguments: { query: "order" } });
-check(textOf(svcFiltered).includes("order-be") && !textOf(svcFiltered).includes("catalog-be"), "service_list фильтрует по подстроке");
-
-const checkout = await client.callTool({ name: "service_checkout", arguments: { service: "payment" } });
-const checkoutText = textOf(checkout);
-check(checkout.isError !== true, "service_checkout клонирует сервис, названный без суффикса", checkoutText.split("\n")[0]);
-check(checkoutText.includes("payment-be"), "суффикс добавляется при сборке адреса репозитория");
-check(checkoutText.includes("backend/payment-be"), "адрес репозитория в API возвращается для шага с PR");
-check(
-  await fs.access(path.join(WORKSPACES, "payment-be", "README.md")).then(() => true, () => false),
-  "рабочая копия действительно появляется на диске",
-);
-
-const withBranch = await client.callTool({
-  name: "service_checkout",
-  arguments: { service: "payment-be", branch: "feature/BACK-1234-retry" },
-});
-check(textOf(withBranch).includes("feature/BACK-1234-retry"), "service_checkout создаёт рабочую ветку");
-check(textOf(withBranch).includes("готов"), "повторный вызов на существующем клоне не падает");
-
-const unknown = await client.callTool({ name: "service_checkout", arguments: { service: "no-such" } });
-check(unknown.isError === true, "service_checkout сообщает о неизвестном сервисе ошибкой");
-check(textOf(unknown).includes("service_list"), "ошибка отправляет сверить имя через service_list");
 
 console.log("\n== скилы, созданные агентом ==");
 const skillTemplate = await client.callTool({ name: "skill_create", arguments: {} });
@@ -234,8 +157,6 @@ const listed = await client.callTool({ name: "skill_create", arguments: {} });
 check(textOf(listed).includes("smoke-skill"), "уже созданный скил виден в списке");
 
 await fs.rm(path.join(SERVER_DIR, ".cache", "gigacode-test"), { recursive: true, force: true });
-await fs.rm(SERVICES_ROOT, { recursive: true, force: true });
-await fs.rm(WORKSPACES, { recursive: true, force: true });
 
 console.log("\n== инструменты, созданные агентом ==");
 const created = await client.callTool({

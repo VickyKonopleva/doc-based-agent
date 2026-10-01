@@ -23,16 +23,31 @@
 
 # Инструменты
 
+## Сначала: а нужен ли инструмент вообще
+
+Инструменты в этом проекте — интерфейсы к возможностям, а не обёртки над
+командами. Прежде чем заводить новый, проверь, что возможности нет иначе:
+
+- её уже даёт подключённый MCP-сервер (Bitbucket, Jira) — пользуйся им;
+- она делается парой команд в оболочке — выполни команды;
+- это всего лишь чтение настройки — значению место в `GIGACODE.local.md`;
+- это правило компании, а не операция — предложи документ в базу знаний.
+
+Именно по этой проверке из проекта убраны `agent_context` (читал адрес из
+конфига, чтобы отдать его модели), `create_pull_request` (PR создаётся и
+через MCP Bitbucket, и напрямую по API) и `service_list`/`service_checkout`
+(обёртки над одним HTTP-запросом и над `git clone`).
+
 ## Когда создавать инструмент
 
-Создавать, если выполняется хотя бы два условия:
+Проверка пройдена и выполняется хотя бы два условия:
 
-- операция повторится в следующих тикетах;
+- операция повторится в следующих задачах;
 - она механическая и имеет чёткий вход/выход;
 - выполнение вручную требует больше трёх шагов или разбора сырого ответа API.
 
-Уместные примеры: открыть PR, получить отчёт о покрытии, сходить во внутренний
-реестр сервисов, распарсить surefire-отчёт, выгрузить схему события из реестра.
+Уместные примеры: получить последнюю версию артефакта из Nexus, собрать отчёт
+о покрытии, сходить во внутренний реестр, распарсить surefire-отчёт.
 
 ## Когда НЕ создавать
 
@@ -79,12 +94,12 @@ export default defineTool({
   description: "Прочитать target/site/jacoco/jacoco.csv и вернуть покрытие по пакетам.",
   annotations: { readOnlyHint: true },
   inputSchema: z.object({
-    service: z.string().describe("Имя сервиса, как его вернул service_checkout."),
+    service: z.string().describe("Имя сервиса, например payment-be."),
     module: z.string().optional().describe("Подкаталог модуля, если проект многомодульный."),
   }),
   async handler(input, ctx) {
     const { readFile } = await import("node:fs/promises");
-    const root = `${ctx.config.services.workspacesDir}/${input.service}`;
+    const root = `workspaces/${input.service}`;
     const path = `${root}/${input.module ?? "."}/target/site/jacoco/jacoco.csv`;
     try {
       return text(await readFile(path, "utf8"));
@@ -95,7 +110,8 @@ export default defineTool({
 });
 ```
 
-Рабочий пример в репозитории — `tools-server/dynamic/create_pull_request.tool.ts`.
+Готовых примеров в `tools-server/dynamic/` нет: каталог пуст по той же
+причине, что и `.gigacode/skills/`. Скелет и правила выдаёт `tool_template`.
 
 # Скилы
 

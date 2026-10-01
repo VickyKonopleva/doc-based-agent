@@ -12,6 +12,7 @@
 | Механизм | Путь | Формат |
 |---|---|---|
 | проектные инструкции | `GIGACODE.md` в корне | обычный Markdown, читается каждой сессией |
+| локальные адреса | `.gigacode/GIGACODE.local.md` | то же, но не версионируется; сюда Nexus и прочее местное |
 | MCP-серверы | `.gigacode/settings.json` → `mcpServers` | `command`/`args`/`cwd` для stdio, `httpUrl`/`headers` для http |
 | разрешённые серверы | `settings.json` → `mcp.allowed` | список имён |
 | субагенты | `.gigacode/agents/*.md` | frontmatter `name`, `description`, `model`, `approvalMode`, `tools`, `disallowedTools` |
@@ -93,7 +94,7 @@ permissive режим родителя всё равно имеет приори
 
 ```bash
 cd tools-server && npm run check     # конфигурация .gigacode
-cd tools-server && npm run smoke     # 72 проверки сервера на фикстурах, без сети
+cd tools-server && npm run smoke     # 51 проверок сервера на фикстурах, без сети
 cd tools-server && npm run inspect   # веб-инспектор MCP, вызов инструментов руками
 ```
 
@@ -121,9 +122,9 @@ GigaCode нет — дело в записи в `settings.json`, а не в се
 - [ ] `cd tools-server && npm run smoke` — все проверки зелёные
 - [ ] `.env` заполнен и не попал в git (`git check-ignore -v .env`)
 - [ ] база знаний доступна: `bootstrap.sh` печатает число документов
-- [ ] `/memory` показывает `GIGACODE.md`
+- [ ] `/memory` показывает `GIGACODE.md` и `GIGACODE.local.md`
 - [ ] `/mcp` показывает `bitbucket`, `jira` и `be-tools`
-- [ ] в `/tools` есть `agent_context`, `service_checkout` и `spec_*` (последние — если `SPEC_PROVIDER` не `external`)
+- [ ] в `/tools` есть `docs_search` и инструменты MCP Bitbucket
 - [ ] `/agents manage` показывает пять агентов
 - [ ] `/skills` пуст — скилы создаёт сам агент, предустановленных нет
 - [ ] `/ticket BACK-1234 456` начинается с `spec_get_pr`
@@ -179,8 +180,8 @@ cd tools-server && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize",
 | в stdout мусор вместо JSON | что-то пишет в stdout; там только протокол, логи — в stderr |
 | `/mcp` показывает Disconnected | смотрите stderr процесса; поднимите `discoveryTimeoutMs` |
 | `docs_read` отвечает «база знаний недоступна» | `AI_DOCS_PATH` в `.env`; сервер печатает его при старте |
-| `service_checkout` не находит репозиторий | `SERVICES_GIT_BASE` и `SERVICES_SUFFIX`; сверьте имя через `service_list` |
-| клон по ssh просит пароль | ключ не в ssh-agent; для https — задайте `SERVICES_TOKEN` |
+| агент не находит репозиторий сервиса | префикс и суффикс в `.gigacode/GIGACODE.local.md` |
+| клон по ssh просит пароль | ключ не добавлен в ssh-agent |
 | `spec_get_pr` не виден в `/tools` | это нормально при `SPEC_PROVIDER=external`: PR аналитики читает MCP Bitbucket |
 | инструмент, созданный агентом, не виден | `tool_list` перечитывает каталог; битый файл перечислен там же с ошибкой |
 | скил не появился | скилы не подхватываются на лету, нужна новая сессия |

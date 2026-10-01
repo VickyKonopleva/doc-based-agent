@@ -13,7 +13,12 @@ fi
 
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  echo "created .env from .env.example — fill in JIRA_* and VCS_* before the first run"
+  echo "создан .env из .env.example — заполните AI_DOCS_PATH и SPEC_* перед первым запуском"
+fi
+
+if [[ ! -f .gigacode/GIGACODE.local.md ]]; then
+  cp .gigacode/GIGACODE.local.md.example .gigacode/GIGACODE.local.md
+  echo "создан .gigacode/GIGACODE.local.md — впишите адрес Nexus, без него шаг с версиями не выполнится"
 fi
 
 echo "installing tool-server dependencies…"
@@ -37,10 +42,5 @@ else
   echo "  подробно: docs/connecting-ai-docs.md"
 fi
 echo "agent tools:    $(ls tools-server/dynamic/*.tool.ts 2>/dev/null | wc -l | tr -d ' ') agent-authored"
-if [[ -n "${SERVICES_GIT_BASE:-}" ]]; then
-  echo "services:       ${SERVICES_GIT_BASE}<имя>${SERVICES_SUFFIX:--be} → ${WORKSPACES_DIR:-workspaces}/"
-else
-  echo "services:       SERVICES_GIT_BASE не задан — агент не сможет выкачать сервисы"
-fi
 echo
 echo "next: ./scripts/run-agent.sh BACK-1234 456"
