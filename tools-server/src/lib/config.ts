@@ -73,12 +73,36 @@ export interface Config {
   /** Where that base comes from, used in error messages and by sync-ai-docs.sh. */
   aiDocsGitUrl: string;
   aiDocsRef: string;
-  /** Checkout of the service the ticket is about. */
-  workspacePath: string;
+
+  /**
+   * Backend microservices. The agent is not given a checkout: it works out
+   * which services a task touches, builds each repository URL from the common
+   * prefix and clones it into workspacesDir.
+   */
+  services: {
+    /** URL prefix shared by every service repo, e.g. "git@git.company.ru:backend/". */
+    gitBase: string;
+    /** Group/org path for API calls — listing repositories, opening MRs. */
+    group: string;
+    /** Suffix every backend service repo carries, e.g. "-be". */
+    suffix: string;
+    /** Where clones land. */
+    workspacesDir: string;
+    defaultBranch: string;
+    provider: SpecProvider;
+    apiUrl: string;
+    token: string;
+    /** 0 = full clone. */
+    cloneDepth: number;
+    mockDir: string;
+  };
   /** Where agent-authored tools live. */
   dynamicDir: string;
   cacheDir: string;
   allowDynamicTools: boolean;
+  /** .gigacode/ — агент создаёт здесь собственные скилы. */
+  gigacodeDir: string;
+  allowSkillAuthoring: boolean;
 
   jira: {
     provider: JiraProvider;
@@ -120,10 +144,24 @@ export function loadConfig(): Config {
     aiDocsPath: resolveFromProject(env("AI_DOCS_PATH", "ai-docs")),
     aiDocsGitUrl: env("AI_DOCS_GIT_URL"),
     aiDocsRef: env("AI_DOCS_REF", "master"),
-    workspacePath: resolveFromProject(env("WORKSPACE_PATH", process.cwd())),
+
+    services: {
+      gitBase: env("SERVICES_GIT_BASE"),
+      group: env("SERVICES_GROUP").replace(/^\/+|\/+$/g, ""),
+      suffix: env("SERVICES_SUFFIX", "-be"),
+      workspacesDir: resolveFromProject(env("WORKSPACES_DIR", "workspaces")),
+      defaultBranch: env("SERVICES_DEFAULT_BRANCH", env("VCS_TARGET_BRANCH", "master")),
+      provider: env("SERVICES_PROVIDER", env("VCS_PROVIDER", "gitlab")) as SpecProvider,
+      apiUrl: env("SERVICES_API_URL", env("VCS_BASE_URL")).replace(/\/+$/, ""),
+      token: env("SERVICES_TOKEN", env("VCS_TOKEN")),
+      cloneDepth: int("SERVICES_CLONE_DEPTH", 0),
+      mockDir: resolveFromProject(env("SERVICES_MOCK_DIR", path.join("tools-server", "fixtures", "services"))),
+    },
     dynamicDir: resolveFromProject(env("TOOLS_DYNAMIC_DIR", path.join("tools-server", "dynamic"))),
     cacheDir: path.join(SERVER_ROOT, ".cache"),
     allowDynamicTools: bool("TOOLS_ALLOW_DYNAMIC", true),
+    gigacodeDir: resolveFromProject(env("GIGACODE_DIR", ".gigacode")),
+    allowSkillAuthoring: bool("SKILLS_ALLOW_CREATE", true),
 
     jira: {
       provider: env("JIRA_PROVIDER", "local") as JiraProvider,

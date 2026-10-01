@@ -9,10 +9,33 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import path from "node:path";
 import fs from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PROJECT_ROOT = path.resolve(SERVER_DIR, "..");
+
+// Настоящий bare-репозиторий на диске: service_checkout клонирует его по-настоящему,
+// так что проверяется и сборка URL из префикса, и git-часть.
+const SERVICES_ROOT = path.join(SERVER_DIR, ".cache", "services-test");
+const WORKSPACES = path.join(SERVER_DIR, ".cache", "workspaces-test");
+function seedServiceRepo(name) {
+  const bare = path.join(SERVICES_ROOT, `${name}.git`);
+  const seed = path.join(SERVICES_ROOT, `${name}-seed`);
+  const git = (args, cwd) => execFileSync("git", args, { cwd, stdio: "pipe" });
+  // Только синхронное удаление: промис от fs.rm разрешился бы уже после git init
+  // и снёс бы только что созданный репозиторий.
+  execFileSync("rm", ["-rf", SERVICES_ROOT, WORKSPACES]);
+  execFileSync("mkdir", ["-p", SERVICES_ROOT]);
+  git(["init", "--bare", "-b", "master", bare]);
+  git(["clone", bare, seed]);
+  execFileSync("sh", ["-c", `echo 'service ${name}' > "${seed}/README.md"`]);
+  git(["add", "-A"], seed);
+  git(["-c", "user.email=smoke@test", "-c", "user.name=Smoke", "commit", "-m", "init"], seed);
+  git(["push", "origin", "master"], seed);
+  execFileSync("rm", ["-rf", seed]);
+}
+seedServiceRepo("payment-be");
 
 let failures = 0;
 const check = (ok, label, detail = "") => {
@@ -32,6 +55,14 @@ const transport = new StdioClientTransport({
     JIRA_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "jira"),
     SPEC_PROVIDER: "mock",
     SPEC_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "spec"),
+    GIGACODE_DIR: path.join(SERVER_DIR, ".cache", "gigacode-test"),
+    SERVICES_PROVIDER: "mock",
+    SERVICES_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "services"),
+    SERVICES_GIT_BASE: SERVICES_ROOT + "/",
+    SERVICES_GROUP: "backend",
+    SERVICES_SUFFIX: "-be",
+    SERVICES_DEFAULT_BRANCH: "master",
+    WORKSPACES_DIR: WORKSPACES,
     LOG_LEVEL: "warn",
   },
   stderr: "inherit",
@@ -44,7 +75,7 @@ console.log("\n== tools/list ==");
 const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();
 console.log(`  ${names.join(", ")}`);
-for (const expected of ["docs_read", "docs_search", "jira_get_issue", "spec_get_pr", "spec_read_file", "tool_create", "tool_list", "tool_template", "create_merge_request"]) {
+for (const expected of ["docs_read", "docs_search", "jira_get_issue", "spec_get_pr", "spec_read_file", "service_list", "service_checkout", "skill_create", "tool_create", "tool_list", "tool_template", "create_merge_request"]) {
   check(names.includes(expected), `exposes ${expected}`);
 }
 check(
@@ -116,6 +147,78 @@ check(textOf(specMissing).includes("callback-retry.md"), "the error lists the fi
 
 const specBadPr = await client.callTool({ name: "spec_get_pr", arguments: { pr: "abc" } });
 check(specBadPr.isError === true, "spec_get_pr rejects a malformed PR reference");
+
+console.log("\n== services ==");
+const svcAll = await client.callTool({ name: "service_list", arguments: {} });
+const svcAllText = textOf(svcAll);
+check(svcAllText.includes("payment-be"), "service_list returns backend services");
+check(svcAllText.includes("Прочие репозитории"), "repos without the -be suffix are listed separately");
+check(svcAllText.indexOf("payment-be") < svcAllText.indexOf("legacy-billing"), "backend services come first");
+
+const svcFiltered = await client.callTool({ name: "service_list", arguments: { query: "order" } });
+check(textOf(svcFiltered).includes("order-be") && !textOf(svcFiltered).includes("catalog-be"), "service_list filters by query");
+
+const checkout = await client.callTool({ name: "service_checkout", arguments: { service: "payment" } });
+const checkoutText = textOf(checkout);
+check(checkout.isError !== true, "service_checkout clones a service named without the suffix", checkoutText.split("\n")[0]);
+check(checkoutText.includes("payment-be"), "the suffix is appended when building the repository address");
+check(checkoutText.includes("backend/payment-be"), "the API project path is reported for the MR step");
+check(
+  await fs.access(path.join(WORKSPACES, "payment-be", "README.md")).then(() => true, () => false),
+  "the working copy really lands on disk",
+);
+
+const withBranch = await client.callTool({
+  name: "service_checkout",
+  arguments: { service: "payment-be", branch: "feature/BACK-1234-retry" },
+});
+check(textOf(withBranch).includes("feature/BACK-1234-retry"), "service_checkout creates the working branch");
+check(textOf(withBranch).includes("готов"), "a second call on an existing clone succeeds instead of failing");
+
+const unknown = await client.callTool({ name: "service_checkout", arguments: { service: "no-such" } });
+check(unknown.isError === true, "service_checkout reports an unknown service as an error");
+check(textOf(unknown).includes("service_list"), "the error points at service_list to check the name");
+
+console.log("\n== self-authored skills ==");
+const skillTemplate = await client.callTool({ name: "skill_create", arguments: {} });
+check(textOf(skillTemplate).includes("name: <skill-name>"), "skill_create without arguments returns the template");
+check(textOf(skillTemplate).includes("Когда НЕ писать"), "the template states when a skill is the wrong answer");
+
+const brokenYaml = await client.callTool({
+  name: "skill_create",
+  arguments: {
+    name: "smoke-skill",
+    source: "---\nname: smoke-skill\ndescription: Разбор: двоеточие ломает YAML\n---\n\nТело.\n",
+  },
+});
+check(brokenYaml.isError === true, "skill_create rejects frontmatter with an unquoted colon");
+check(textOf(brokenYaml).includes("двоеточие"), "the rejection explains the actual cause");
+
+const nameMismatch = await client.callTool({
+  name: "skill_create",
+  arguments: { name: "smoke-skill", source: "---\nname: other\ndescription: x\n---\n\nТело.\n" },
+});
+check(nameMismatch.isError === true, "skill_create rejects a name that disagrees with the frontmatter");
+
+const goodSkill = await client.callTool({
+  name: "skill_create",
+  arguments: {
+    name: "smoke-skill",
+    overwrite: true,
+    source: "---\nname: smoke-skill\ndescription: Временный скил, созданный smoke-тестом\npriority: 5\n---\n\n# Smoke\n\n## Шаги\n\n1. Ничего.\n",
+  },
+});
+check(goodSkill.isError !== true, "skill_create accepts a valid skill", textOf(goodSkill).slice(0, 80));
+const skillFile = path.join(SERVER_DIR, ".cache", "gigacode-test", "skills", "smoke-skill", "SKILL.md");
+check(await fs.access(skillFile).then(() => true, () => false), "the skill file lands in .gigacode/skills/<name>/SKILL.md");
+check(textOf(goodSkill).includes("следующей сессии"), "the agent is told skills are not hot-reloaded");
+
+const listed = await client.callTool({ name: "skill_create", arguments: {} });
+check(textOf(listed).includes("smoke-skill"), "an existing skill shows up in the template listing");
+
+await fs.rm(path.join(SERVER_DIR, ".cache", "gigacode-test"), { recursive: true, force: true });
+await fs.rm(SERVICES_ROOT, { recursive: true, force: true });
+await fs.rm(WORKSPACES, { recursive: true, force: true });
 
 console.log("\n== self-extension ==");
 const created = await client.callTool({

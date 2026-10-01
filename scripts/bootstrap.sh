@@ -37,5 +37,10 @@ else
   echo "  подробно: docs/connecting-ai-docs.md"
 fi
 echo "agent tools:    $(ls tools-server/dynamic/*.tool.ts 2>/dev/null | wc -l | tr -d ' ') agent-authored"
+if [[ -n "${SERVICES_GIT_BASE:-}" ]]; then
+  echo "services:       ${SERVICES_GIT_BASE}<имя>${SERVICES_SUFFIX:--be} → ${WORKSPACES_DIR:-workspaces}/"
+else
+  echo "services:       SERVICES_GIT_BASE не задан — агент не сможет выкачать сервисы"
+fi
 echo
 echo "next: ./scripts/run-agent.sh BACK-1234 456"

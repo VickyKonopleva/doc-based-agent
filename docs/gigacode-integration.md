@@ -15,7 +15,7 @@
 | MCP-серверы | `.gigacode/settings.json` → `mcpServers` | `command`/`args`/`cwd` для stdio, `httpUrl`/`headers` для http |
 | разрешённые серверы | `settings.json` → `mcp.allowed` | список имён |
 | субагенты | `.gigacode/agents/*.md` | frontmatter `name`, `description`, `model`, `approvalMode`, `tools`, `disallowedTools` |
-| скилы | `.gigacode/skills/<name>/SKILL.md` | frontmatter `name`, `description`, `priority`, `paths` |
+| скилы | `.gigacode/skills/<name>/SKILL.md` | frontmatter `name`, `description`, `priority`, `paths`; каталог пуст — наполняет сам агент |
 | команды | `.gigacode/commands/*.md` | frontmatter `description`, подстановка `{{args}}` |
 
 ## MCP
@@ -93,7 +93,7 @@ permissive режим родителя всё равно имеет приори
 
 ```bash
 cd tools-server && npm run check     # конфигурация .gigacode
-cd tools-server && npm run smoke     # 42 проверки сервера на фикстурах, без сети
+cd tools-server && npm run smoke     # 66 проверок сервера на фикстурах, без сети
 cd tools-server && npm run inspect   # веб-инспектор MCP, вызов инструментов руками
 ```
 
@@ -122,7 +122,66 @@ GigaCode нет — дело в записи в `settings.json`, а не в се
 - [ ] `.env` заполнен и не попал в git (`git check-ignore -v .env`)
 - [ ] база знаний доступна: `bootstrap.sh` печатает число документов
 - [ ] `/memory` показывает `GIGACODE.md`
-- [ ] `/mcp` показывает `be-tools` и его 9 инструментов
+- [ ] `/mcp` показывает `be-tools`: 12 встроенных инструментов + `create_merge_request`
 - [ ] `/agents manage` показывает пять агентов
-- [ ] `/skills` показывает три скила
+- [ ] `/skills` пуст — скилы создаёт сам агент, предустановленных нет
 - [ ] `/ticket BACK-1234 456` начинается с `spec_get_pr`
+
+## Запуск сервера руками
+
+Обычно его запускает GigaCode сам по `settings.json`. Отдельно он нужен для
+отладки — и это всегда stdio-процесс: запущенный в терминале, он молча ждёт
+JSON-RPC на входе, это нормальное поведение, а не зависание.
+
+```bash
+cd tools-server && npm install     # один раз
+```
+
+```bash
+cd tools-server && npm run inspect
+```
+
+Веб-инспектор MCP: видно `tools/list`, можно вызвать любой инструмент руками
+и посмотреть ответ. Основной способ отладки.
+
+```bash
+cd tools-server && npm run dev
+```
+
+`tsx watch` — перезапуск при правке `src/`. Логи идут в stderr. Полезно,
+когда инспектор уже подключён к серверу, запущенному таким образом.
+
+```bash
+cd tools-server && npm run smoke
+```
+
+Прогон на фикстурах: ответ на вопрос «сервер вообще рабочий», без Jira,
+GitLab и базы знаний.
+
+Одноразовая проверка, что процесс поднимается и отвечает:
+
+```bash
+cd tools-server && printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' | npx tsx src/index.ts
+```
+
+В stdout придёт `initialize`-ответ, в stderr — строка `ai-tools-server ready`
+со списком инструментов и путями, которые сервер считал из `.env`. Это самый
+быстрый способ увидеть, туда ли смотрит `AI_DOCS_PATH`.
+
+Сборка для запуска не нужна: `npx tsx` исполняет TypeScript напрямую. Вариант
+`node dist/index.js` работает после `npm run build`.
+
+### Если что-то не так
+
+| Симптом | Причина |
+|---|---|
+| в stdout мусор вместо JSON | что-то пишет в stdout; там только протокол, логи — в stderr |
+| `/mcp` показывает Disconnected | смотрите stderr процесса; поднимите `discoveryTimeoutMs` |
+| `docs_read` отвечает «база знаний недоступна» | `AI_DOCS_PATH` в `.env`; сервер печатает его при старте |
+| `service_checkout` не находит репозиторий | `SERVICES_GIT_BASE` и `SERVICES_SUFFIX`; сверьте имя через `service_list` |
+| клон по https просит пароль | `SERVICES_TOKEN` в `.env`; для ssh — ключ в агенте |
+| инструмент, созданный агентом, не виден | `tool_list` перечитывает каталог; битый файл перечислен там же с ошибкой |
+| скил не появился | скилы не подхватываются на лету, нужна новая сессия |
+
+Подробные логи: `LOG_LEVEL=debug` и, при необходимости, `LOG_FILE=/tmp/be-tools.log`
+в `.env` — иначе stderr уходит в CLI.

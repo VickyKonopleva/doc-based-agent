@@ -11,31 +11,41 @@ export default defineTool({
   name: "create_merge_request",
   title: "Open merge request",
   description:
-    "Open a merge/pull request for an already-pushed branch. Push first (git push -u origin <branch>), then call this. " +
-    "Provider, host, token and project id come from the tool server's environment (VCS_*).",
+    "Открыть merge/pull request для уже запушенной ветки сервиса. Сначала push, потом этот вызов. " +
+    "Проект определяется по имени сервиса и группе из SERVICES_GROUP; хост и токен — из окружения сервера. " +
+    "Задача, затрагивающая несколько сервисов, даёт несколько MR — по одному на сервис.",
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   inputSchema: z.object({
-    sourceBranch: z.string().describe("Branch that was pushed, e.g. feature/BACK-1234-add-retry."),
-    title: z.string().describe("MR title. Follow 30-conventions/branching-and-commits.md — usually '<TICKET>: <summary>'."),
-    description: z.string().describe("MR body in markdown: what changed, why, which ai-docs conventions applied, how it was tested."),
-    targetBranch: z.string().optional().describe("Defaults to VCS_TARGET_BRANCH."),
-    draft: z.boolean().optional().describe("Open as draft (default true — a human reviews before it is marked ready)."),
-    removeSourceBranch: z.boolean().optional().describe("Delete the source branch on merge (default true)."),
+    service: z.string().describe("Имя сервиса, как его вернул service_checkout, например payment-be."),
+    sourceBranch: z.string().describe("Запушенная ветка, например feature/BACK-1234-add-retry."),
+    title: z.string().describe("Заголовок MR по формату из базы знаний, обычно '<TICKET>: <что сделано>'."),
+    description: z.string().describe("Описание в markdown: ссылка на PR аналитики и тикет, таблица требований, применённые конвенции, расхождения."),
+    targetBranch: z.string().optional().describe("По умолчанию SERVICES_DEFAULT_BRANCH."),
+    draft: z.boolean().optional().describe("Создавать черновиком (по умолчанию true — снимает draft человек)."),
+    removeSourceBranch: z.boolean().optional().describe("Удалять ветку после мержа (по умолчанию true).")
   }),
   async handler(input, ctx) {
+    const svc = ctx.config.services;
     const vcs = ctx.config.vcs;
-    const target = input.targetBranch ?? vcs.defaultTargetBranch;
+    const target = input.targetBranch ?? svc.defaultBranch;
     const draft = input.draft ?? true;
 
-    if (!vcs.token) return failure("VCS_TOKEN is not set for the tool server.");
-    if (!vcs.projectId) return failure("VCS_PROJECT_ID is not set for the tool server.");
-    if (!vcs.baseUrl) return failure("VCS_BASE_URL is not set for the tool server.");
+    const token = svc.token || vcs.token;
+    const baseUrl = svc.apiUrl || vcs.baseUrl;
+    // Проект собирается из группы и имени сервиса; VCS_PROJECT_ID — запасной вариант.
+    const project = svc.group ? `${svc.group}/${input.service}` : vcs.projectId;
 
-    if (vcs.provider === "gitlab") {
-      const url = `${vcs.baseUrl}/api/v4/projects/${encodeURIComponent(vcs.projectId)}/merge_requests`;
+    if (!token) return failure("Не задан SERVICES_TOKEN (или VCS_TOKEN).");
+    if (!baseUrl) return failure("Не задан SERVICES_API_URL (или VCS_BASE_URL).");
+    if (!project) return failure("Не удалось определить проект: задайте SERVICES_GROUP или VCS_PROJECT_ID.");
+
+    const provider = svc.provider || vcs.provider;
+
+    if (provider === "gitlab") {
+      const url = `${baseUrl}/api/v4/projects/${encodeURIComponent(project)}/merge_requests`;
       const response = await fetch(url, {
         method: "POST",
-        headers: { "PRIVATE-TOKEN": vcs.token, "Content-Type": "application/json" },
+        headers: { "PRIVATE-TOKEN": token, "Content-Type": "application/json" },
         body: JSON.stringify({
           source_branch: input.sourceBranch,
           target_branch: target,
@@ -49,17 +59,19 @@ export default defineTool({
       const body = await response.text();
       if (!response.ok) return failure(`GitLab responded ${response.status}: ${body.slice(0, 800)}`);
       const mr = JSON.parse(body) as { web_url: string; iid: number };
-      ctx.logger.info("merge request created", { iid: mr.iid, url: mr.web_url });
-      return text(`Merge request !${mr.iid} created: ${mr.web_url}`, { url: mr.web_url, iid: mr.iid });
+      ctx.logger.info("merge request created", { service: input.service, iid: mr.iid, url: mr.web_url });
+      return text(`${input.service}: merge request !${mr.iid} создан — ${mr.web_url}`, {
+        service: input.service, url: mr.web_url, iid: mr.iid,
+      });
     }
 
-    if (vcs.provider === "github") {
-      const [owner, repo] = vcs.projectId.split("/");
-      if (!owner || !repo) return failure(`VCS_PROJECT_ID must be "owner/repo" for GitHub, got "${vcs.projectId}".`);
-      const response = await fetch(`${vcs.baseUrl}/repos/${owner}/${repo}/pulls`, {
+    if (provider === "github") {
+      const [owner, repo] = project.split("/");
+      if (!owner || !repo) return failure(`Для GitHub нужен проект вида "owner/repo", получено "${project}".`);
+      const response = await fetch(`${baseUrl}/repos/${owner}/${repo}/pulls`, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${vcs.token}`,
+          Authorization: `Bearer ${token}`,
           Accept: "application/vnd.github+json",
           "Content-Type": "application/json",
         },
@@ -75,9 +87,11 @@ export default defineTool({
       const body = await response.text();
       if (!response.ok) return failure(`GitHub responded ${response.status}: ${body.slice(0, 800)}`);
       const pr = JSON.parse(body) as { html_url: string; number: number };
-      return text(`Pull request #${pr.number} created: ${pr.html_url}`, { url: pr.html_url, number: pr.number });
+      return text(`${input.service}: pull request #${pr.number} создан — ${pr.html_url}`, {
+        service: input.service, url: pr.html_url, number: pr.number,
+      });
     }
 
-    return failure(`VCS provider "${vcs.provider}" is not implemented in this tool. Extend it with tool_create.`);
+    return failure(`Провайдер "${provider}" в этом инструменте не реализован. Доработай его через tool_create.`);
   },
 });

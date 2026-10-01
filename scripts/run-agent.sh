@@ -69,16 +69,15 @@ if [[ -f "$PROJECT_ROOT/.env" ]]; then
   set -a; source "$PROJECT_ROOT/.env"; set +a
 fi
 
-WORKSPACE_PATH="${WORKSPACE_PATH:-$PROJECT_ROOT}"
-export WORKSPACE_PATH
-
-if [[ ! -d "$WORKSPACE_PATH" ]]; then
-  echo "error: WORKSPACE_PATH='$WORKSPACE_PATH' не существует — укажите чекаут сервиса" >&2
+if [[ -z "${SERVICES_GIT_BASE:-}" ]]; then
+  echo "error: SERVICES_GIT_BASE не задан в .env" >&2
+  echo "       Агент сам определяет затронутые сервисы и достраивает адрес из этого префикса." >&2
+  echo "       Пример: SERVICES_GIT_BASE=git@git.company.ru:backend/" >&2
   exit 1
 fi
 
-echo "[run-agent] workspace: $WORKSPACE_PATH" >&2
-echo "[run-agent] spec repo: ${SPEC_PROJECT_ID:-(не настроен)} @ ${SPEC_BASE_URL:-${VCS_BASE_URL:-?}}" >&2
+echo "[run-agent] spec repo: ${SPEC_PROJECT_ID:-(не настроен)} @ ${SPEC_BASE_URL:-?}" >&2
+echo "[run-agent] services:  ${SERVICES_GIT_BASE}<имя>${SERVICES_SUFFIX:--be} → ${WORKSPACES_DIR:-workspaces}/" >&2
 echo "[run-agent] command:   $COMMAND" >&2
 
 GIGACODE_BIN="${GIGACODE_BIN:-gigacode}"

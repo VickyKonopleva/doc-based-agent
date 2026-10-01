@@ -14,6 +14,8 @@ import type { ToolContext, ToolResult } from "./lib/types.js";
 import { loadDynamicTools } from "./runtime/dynamic.js";
 import { docsTools } from "./tools/docs.js";
 import { jiraTools } from "./tools/jira.js";
+import { serviceTools } from "./tools/services.js";
+import { skillTools } from "./tools/skills.js";
 import { specTools } from "./tools/spec.js";
 import { toolsmithTools } from "./tools/toolsmith.js";
 
@@ -21,7 +23,7 @@ const config = loadConfig();
 const logger = createLogger(config.logLevel, config.logFile);
 const registry = new ToolRegistry();
 
-for (const tool of [...docsTools, ...jiraTools(config), ...specTools(config), ...toolsmithTools]) {
+for (const tool of [...docsTools, ...jiraTools(config), ...specTools(config), ...serviceTools(config), ...skillTools(config), ...toolsmithTools]) {
   registry.register(tool, "builtin");
 }
 
@@ -95,7 +97,8 @@ async function main(): Promise<void> {
   logger.info("ai-tools-server ready", {
     tools: registry.names(),
     aiDocs: config.aiDocsPath,
-    workspace: config.workspacePath,
+    workspaces: config.services.workspacesDir,
+    servicesBase: config.services.gitBase || "(не настроен)",
     jiraProvider: config.jira.provider,
     specProvider: config.spec.provider,
     vcsProvider: config.vcs.provider,
