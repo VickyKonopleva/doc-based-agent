@@ -2,59 +2,81 @@
 
 Рабочее место AI-агента **`backend-developer`** на GigaCode CLI.
 
-Агент получает на вход **только номер тикета Jira** и доводит задачу до draft
-merge request. Он не знает конвенций компании наизусть — всё, что он знает,
-лежит в `ai-docs/`. Инструментов у него минимум, недостающие он пишет себе сам.
+Процесс **spec-driven**: на вход агенту подаются **номер тикета Jira** и
+**номер PR в репозитории аналитики** (SA specification). Требования живут в PR
+аналитики, контекст — в тикете. Агент разбирает спецификацию, реализует её в
+сервисе и доводит задачу до draft merge request.
+
+Он не знает конвенций компании наизусть — всё, что он знает, лежит в вашей
+базе знаний `ai-docs`, которая подключается снаружи. Инструментов у него
+минимум, недостающие он пишет себе сам.
 
 ```
-┌───────────────┐   номер тикета    ┌──────────────────────┐
-│  разработчик  │ ────────────────► │   GigaCode CLI       │
-└───────────────┘                   │   .gigacode/         │
-                                    └──────────┬───────────┘
-                                   MCP (stdio) │
-                                    ┌──────────▼───────────┐
-                                    │   tools-server (TS)  │
-                                    │  docs_* jira_* tool_*│
-                                    └──┬────────┬──────────┘
-                                       │        │
-                              ┌────────▼──┐  ┌──▼────────────────┐
-                              │  ai-docs  │  │ dynamic/ — тулы,  │
-                              │ (правила) │  │ написанные агентом│
-                              └───────────┘  └───────────────────┘
+      тикет BACK-1234  +  PR аналитики !456
+                    │
+                    ▼
+         ┌──────────────────────┐
+         │   GigaCode CLI       │
+         │   .gigacode/         │
+         └──────────┬───────────┘
+            MCP stdio│
+         ┌───────────▼──────────────┐
+         │  be-tools (TypeScript)   │
+         │  docs_* jira_* spec_*    │
+         │  tool_*                  │
+         └──┬────────┬─────────┬────┘
+            │        │         │
+   ┌────────▼──┐  ┌──▼──────┐ ┌▼─────────────────┐
+   │  ai-docs  │  │ Jira +  │ │ dynamic/ — тулы, │
+   │  (внешняя │  │ репо    │ │ написанные       │
+   │   база)   │  │ аналитики│ │ агентом          │
+   └───────────┘  └─────────┘ └──────────────────┘
 ```
 
 ## Идея
 
 | Обычный агент | Этот агент |
 |---|---|
-| десятки скилов и тулов в конфиге | 6 встроенных инструментов |
-| правила зашиты в промпт | правила в версионируемой базе `ai-docs` |
-| новый кейс → правка промпта | новый кейс → документ в `ai-docs` |
+| правила зашиты в промпт | правила во внешней версионируемой базе знаний |
+| требования пересказаны в тикете | требования читаются из PR аналитики, с трассируемостью |
+| новый кейс → правка промпта | новый кейс → документ в базе знаний |
 | не хватает инструмента → правка кода и рестарт | агент пишет инструмент сам, на лету |
+| один агент тянет весь контекст | разведка и ревью вынесены в read-only субагентов |
 
 Меняется процесс — меняется документ, а не конфигурация агента.
+
+Четыре уровня, не пересекающиеся по смыслу:
+
+| Уровень | Отвечает на вопрос |
+|---|---|
+| база знаний `ai-docs` | **что** принято в компании |
+| скилы `.gigacode/skills/` | **как** выполнить процедуру |
+| инструменты `tools-server/` | детерминированные операции |
+| агенты `.gigacode/agents/` | кто что видит и в каком контексте |
 
 ## Структура
 
 ```
-.gigacode/              настройки GigaCode CLI
-  settings.json           MCP-сервер + permissions (активный профиль)
-  settings.local-jira.json  профиль: Jira из нашего ts-сервера
-  settings.jira-mcp.json    профиль: Jira из внешнего MCP-коннектора
-  AGENTS.md               проектные инструкции, загружаются всегда
-  agents/
-    backend-developer.md  роль и процедура агента
-  commands/               /ticket, /plan, /docs-gap
-  skills/                 намеренно пусто
-  hooks/                  пусто; сюда — то, что должно работать всегда
-ai-docs/                база знаний — единственный источник правды
-tools-server/           ts-сервер инструментов (MCP over stdio)
-  src/tools/              встроенные инструменты
-  dynamic/                инструменты, написанные агентом
-  fixtures/jira/          фикстуры для режима JIRA_PROVIDER=mock
-scripts/                bootstrap, запуск сервера и агента
-docs/                   как это устроено и как адаптировать
+GIGACODE.md               проектные инструкции, читаются в начале сессии
+.gigacode/
+  settings.json             активный профиль: mcpServers + mcp.allowed
+  settings.local-jira.json    профиль: Jira из нашего be-tools
+  settings.jira-mcp.json      профиль: Jira и Confluence из внешних MCP
+  agents/                   оркестратор + 4 read-only субагента
+  skills/                   spec-intake, merge-request, migration-safety
+  commands/                 /ticket, /plan, /spec, /docs-gap
+  ai-docs-pointers.md       «тема → документ» вашей базы знаний (заполняется командой)
+  hooks/                    пусто; сюда — то, что должно работать всегда
+tools-server/             MCP-сервер инструментов (stdio)
+  src/tools/                встроенные инструменты
+  dynamic/                  инструменты, написанные агентом
+  fixtures/                 фикстуры для оффлайн-прогона: ai-docs, jira, spec
+scripts/                  bootstrap, sync-ai-docs, запуск агента
+docs/                     как это устроено и как подключить своё
 ```
+
+Базы знаний в репозитории **нет** — см.
+[docs/connecting-ai-docs.md](docs/connecting-ai-docs.md).
 
 ## Быстрый старт
 
@@ -62,32 +84,41 @@ docs/                   как это устроено и как адаптир�
 ./scripts/bootstrap.sh
 ```
 
-Заполнить `.env` (как минимум `WORKSPACE_PATH`, `JIRA_BASE_URL`, `JIRA_TOKEN`),
-затем:
+Заполнить `.env`: путь к базе знаний (`AI_DOCS_PATH` или `AI_DOCS_GIT_URL`),
+`WORKSPACE_PATH`, доступ к репозиторию аналитики (`SPEC_*`) и к Jira (`JIRA_*`).
 
 ```bash
-./scripts/run-agent.sh BACK-1234
+./scripts/sync-ai-docs.sh            # если базу нужно склонировать
+./scripts/run-agent.sh BACK-1234 456
 ```
 
-Только разбор и план, без правок:
+Другие режимы:
 
 ```bash
-./scripts/run-agent.sh BACK-1234 --plan
+./scripts/run-agent.sh BACK-1234 456 --plan   # только разбор и план, без правок
+./scripts/run-agent.sh --spec 456             # только разбор спецификации
+./scripts/run-agent.sh BACK-1234 --no-spec    # хотфикс без спеки, попадёт в MR как отступление
 ```
 
-Из IntelliJ IDEA: конфигурации запуска **Bootstrap**, **Agent: ticket**,
-**Agent: plan only**, **Tools server (dev)**, **MCP Inspector** уже лежат в
-`.idea/runConfigurations`.
+Из IntelliJ IDEA: конфигурации **Bootstrap**, **Agent: ticket**,
+**Agent: plan only**, **Tools server (dev / build / smoke)**, **MCP Inspector**
+лежат в `.idea/runConfigurations`.
 
-## Проверка без Jira и без GigaCode
+## Проверка без Jira, GitLab и GigaCode
 
 ```bash
-cd tools-server && JIRA_PROVIDER=mock npm run smoke
+cd tools-server && npm run check   # конфигурация .gigacode: агенты, скилы, команды, профили
+cd tools-server && npm run smoke   # сервер инструментов целиком, на фикстурах
 ```
 
-Поднимает сервер по stdio ровно так же, как это делает GigaCode, и проверяет
-23 сценария: список инструментов, чтение и поиск по базе, разбор тикета из
-фикстуры и создание агентом нового инструмента на лету.
+`check` ловит то, что иначе проявится молчаливым «агент не загрузился»:
+сломанный YAML во frontmatter, `tools` не массивом, `$ARGUMENTS` вместо
+`{{args}}`, сервер не из `mcp.allowed`, `includeTools` у `be-tools`.
+
+`smoke` поднимает сервер по stdio ровно так же, как это делает GigaCode, и
+проверяет 42 сценария на фикстурах: список инструментов, чтение и поиск по базе знаний,
+разбор тикета, разбор PR аналитики с файлами спецификации и нерешёнными
+тредами, создание агентом нового инструмента на лету.
 
 Посмотреть и подёргать инструменты руками:
 
@@ -95,39 +126,63 @@ cd tools-server && JIRA_PROVIDER=mock npm run smoke
 cd tools-server && npm run inspect
 ```
 
-## Встроенные инструменты
+## Агенты и скилы
+
+| Агент | Роль | Меняет файлы |
+|---|---|---|
+| `backend-developer` | оркестратор: от тикета до draft MR | да, единственный |
+| `docs-researcher` | применимые правила из базы знаний, цитатами со ссылками | нет |
+| `code-explorer` | карта кода в зоне изменения | нет |
+| `build-doctor` | разбор красной сборки по логу | нет |
+| `self-reviewer` | ревью перед MR свежим взглядом | нет |
+
+Субагенты читают много, а возвращают короткую выжимку — это и есть смысл их
+отдельного контекста. `docs-researcher` и `code-explorer` запускаются вместе.
+
+| Скил | Когда |
+|---|---|
+| `spec-intake` | разбор PR аналитики в таблицу требований |
+| `merge-request` | ветка, коммиты, draft MR + шаблон описания |
+| `migration-safety` | срабатывает сам при работе с файлами миграций (`paths:`) |
+
+## Инструменты
 
 | Инструмент | Назначение |
 |---|---|
-| `docs_read` | каталог базы или полный текст документа (по пути, `id` или секции) |
+| `docs_read` | каталог базы знаний или полный текст документа (по пути, `id` или секции) |
 | `docs_search` | поиск по тексту, заголовкам, тегам и frontmatter |
+| `spec_get_pr` | PR аналитики: описание, файлы спецификации, обсуждение, упомянутые тикеты |
+| `spec_read_file` | файл спецификации целиком или его diff в этом PR |
 | `jira_get_issue` | тикет по номеру: описание, критерии, связи, комментарии |
-| `tool_template` | скелет модуля инструмента |
+| `tool_template` | скелет модуля инструмента и критерии, когда его стоит писать |
 | `tool_create` | написать и подключить новый инструмент без рестарта |
 | `tool_list` | что сейчас доступно, что не компилируется |
 | `tool_delete` | удалить свой инструмент |
 
-Всё остальное — файлы, git, Maven — через встроенный shell GigaCode,
-ограниченный `permissions` в `settings.json`.
+Плюс `create_merge_request` — пример инструмента, написанного «агентом»,
+лежит в `tools-server/dynamic/`.
+
+Всё остальное — файлы, git, Maven — через встроенный shell GigaCode.
 
 ## Два источника Jira
 
-Поддерживаются оба, переключаются скриптом:
-
 ```bash
-./scripts/use-jira-mcp.sh local      # jira_get_issue из нашего ts-сервера
-./scripts/use-jira-mcp.sh external   # внешний Jira MCP-коннектор
+./scripts/use-jira-mcp.sh local      # jira_get_issue из нашего be-tools
+./scripts/use-jira-mcp.sh external   # внешний Jira MCP по httpUrl + Confluence
 ```
 
 В режиме `external` (`JIRA_PROVIDER=external` в `.env`) наш сервер не
 регистрирует `jira_get_issue`, и агент пользуется инструментами внешнего
 сервера — конфликта имён не возникает.
 
+Инструменты PR аналитики работают в обоих профилях: спецификация читается из
+git-хостинга напрямую.
+
 ## Дальше
 
-- [`docs/how-it-works.md`](docs/how-it-works.md) — поток выполнения тикета.
-- [`docs/gigacode-integration.md`](docs/gigacode-integration.md) — что проверить
-  под реальный GigaCode CLI и где точки адаптации.
-- [`docs/adapting-ai-docs.md`](docs/adapting-ai-docs.md) — как наполнить базу
-  под свой контур.
-- [`ai-docs/README.md`](ai-docs/README.md) — устройство базы знаний.
+- [docs/how-it-works.md](docs/how-it-works.md) — поток выполнения задачи.
+- [docs/connecting-ai-docs.md](docs/connecting-ai-docs.md) — подключение базы знаний.
+- [docs/ai-docs-contract.md](docs/ai-docs-contract.md) — что агент ожидает от базы.
+- [docs/gigacode-integration.md](docs/gigacode-integration.md) — точки адаптации под ваш CLI.
+- [docs/agent-self-extension.md](docs/agent-self-extension.md) — как агент пишет себе инструменты.
+- [docs/proposed-ai-docs/](docs/proposed-ai-docs/) — черновики документов для вашей базы.

@@ -1,60 +1,16 @@
 {
   "mcpServers": {
-    "ai-tools": {
-      "type": "stdio",
-      "command": "bash",
-      "args": ["scripts/start-tools-server.sh"],
-      "env": {}
+    "be-tools": {
+      "command": "npx",
+      "args": ["tsx", "src/index.ts"],
+      "cwd": "tools-server",
+      "timeout": 60000,
+      "discoveryTimeoutMs": 60000,
+      "trust": false
     }
   },
-
-  "permissions": {
-    "defaultMode": "acceptEdits",
-    "allow": [
-      "mcp__ai-tools__docs_read",
-      "mcp__ai-tools__docs_search",
-      "mcp__ai-tools__jira_get_issue",
-      "mcp__ai-tools__tool_list",
-      "mcp__ai-tools__tool_template",
-      "mcp__ai-tools__tool_create",
-      "Read",
-      "Glob",
-      "Grep",
-      "Edit",
-      "Write",
-      "Bash(./mvnw:*)",
-      "Bash(mvn:*)",
-      "Bash(git status:*)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
-      "Bash(git fetch:*)",
-      "Bash(git switch:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git push -u origin:*)",
-      "Bash(ls:*)",
-      "Bash(find:*)",
-      "Bash(rg:*)"
-    ],
-    "deny": [
-      "Bash(git push --force:*)",
-      "Bash(git push origin master:*)",
-      "Bash(git push origin main:*)",
-      "Bash(git reset --hard:*)",
-      "Bash(rm -rf:*)",
-      "Bash(curl:*)",
-      "Bash(wget:*)",
-      "Read(./.env)",
-      "Read(**/*.p12)",
-      "Read(**/*.jks)",
-      "Read(**/id_rsa)",
-      "Write(./.env)",
-      "Write(./ai-docs/**)"
-    ]
+  "mcp": {
+    "allowed": ["be-tools"]
   },
-
-  "env": {
-    "AI_DOCS_PATH": "ai-docs",
-    "TOOLS_DYNAMIC_DIR": "tools-server/dynamic"
-  }
+  "$version": 4
 }

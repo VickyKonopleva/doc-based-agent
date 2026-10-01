@@ -1,15 +1,20 @@
 ---
-description: Взять тикет Jira в работу и довести до draft merge request
-argument-hint: <TICKET-123>
-allowed-tools: docs_read, docs_search, jira_get_issue, tool_list, tool_template, tool_create, Read, Write, Edit, Glob, Grep, Bash
+description: Взять задачу в работу по тикету Jira и PR аналитики, довести до draft merge request
 ---
 
-Возьми в работу тикет `$ARGUMENTS`.
+Возьми в работу задачу: `{{args}}`.
 
-Работай строго по роли из `.gigacode/agents/backend-developer.md`. Начни с трёх
-вызовов: `docs_read()` без аргументов, затем
-`docs_read("10-process/ticket-lifecycle.md")`, затем
-`jira_get_issue("$ARGUMENTS")`.
+Первый аргумент — номер тикета Jira, второй — номер PR в репозитории аналитики
+(SA specification). Если второго аргумента нет и не передан `--no-spec`,
+остановись и запроси его: без спецификации задача не берётся.
 
-Не вноси ни одного изменения в файлы, пока не выдашь план с перечнем
-применяемых конвенций (их `id` из ai-docs).
+Работай строго по роли `backend-developer` из
+`.gigacode/agents/backend-developer.md`.
+
+Начни с `spec_get_pr` и прочитай **каждый** файл спецификации целиком через
+`spec_read_file` — это делаешь сам, не делегируя. Затем запусти вместе
+субагентов `docs-researcher` и `code-explorer`.
+
+Не вноси ни одного изменения в файлы, пока не выдашь таблицу требований
+(с идентификаторами из спецификации) и план с перечнем применяемых правил и
+документов, в которых они найдены.

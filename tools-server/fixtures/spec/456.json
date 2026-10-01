@@ -1,0 +1,42 @@
+{
+  "number": 456,
+  "title": "BACK-1234 Ретраи коллбэков платёжного шлюза — спецификация",
+  "author": "Мария Соколова",
+  "state": "opened",
+  "sourceBranch": "spec/BACK-1234-payment-callback-retry",
+  "targetBranch": "master",
+  "webUrl": "https://git.company.ru/analytics/sa-specifications/-/merge_requests/456",
+  "description": "Спецификация к BACK-1234.\n\nДобавляем повторную обработку коллбэков платёжного шлюза. Контракт коллбэка не меняется, меняется только поведение payment-service при ошибках.\n\nСогласовано с командой платежей 2026-09-29. Вопрос по DLT остаётся открытым — см. тред в обсуждении.",
+  "files": [
+    {
+      "path": "payments/payment-service/callback-retry.md",
+      "status": "added",
+      "diff": "@@ -0,0 +1,40 @@\n+# Повторная обработка коллбэков\n+...",
+      "content": "# Повторная обработка коллбэков платёжного шлюза\n\n## Контекст\n\nШлюз отвечает 5xx при пиковой нагрузке. Коллбэк теряется, платёж зависает в `PROCESSING`.\n\n## Требования\n\n| № | Требование | Приоритет |\n|---|---|---|\n| R1 | При ответе шлюза 5xx обработка коллбэка повторяется до 3 раз с задержкой 1s, 2s, 4s плюс джиттер ±20% | must |\n| R2 | Повторный коллбэк с тем же `paymentId` не изменяет платёж, находящийся в терминальном статусе (`COMPLETED`, `FAILED`, `REFUNDED`) | must |\n| R3 | После исчерпания попыток публикуется событие `payment.payment.failed.v1` с `reason = CALLBACK_RETRIES_EXHAUSTED` | must |\n| R4 | Число попыток доступно в метрике `payment.callback.retries` с тегом `outcome` | should |\n| R5 | Таймаут одного обращения к шлюзу — 5 секунд | must |\n\n## Контракт коллбэка\n\nНе меняется. `POST /api/v1/payments/{id}/callback`, тело существующее.\n\n## Статусная модель\n\nТерминальные статусы: `COMPLETED`, `FAILED`, `REFUNDED`. Переход из терминального статуса запрещён; повторный коллбэк логируется на уровне `INFO` и возвращает `200` без изменения состояния.\n\n## Критерии приёмки\n\n1. Три неудачных ответа 5xx подряд → платёж `FAILED`, событие опубликовано ровно один раз.\n2. Успешный ответ на второй попытке → платёж `COMPLETED`, событие `completed` опубликовано один раз.\n3. Повторный коллбэк по уже `COMPLETED` платежу → `200`, состояние не изменилось, событие не публикуется.\n4. Метрика `payment.callback.retries` растёт на каждую повторную попытку.\n\n## Вне рамок\n\n- Изменение контракта коллбэка.\n- Ретраи исходящих запросов к шлюзу (отдельная задача BACK-1300).\n"
+    },
+    {
+      "path": "payments/payment-service/events/payment-failed-v1.yaml",
+      "status": "modified",
+      "diff": "@@ -12,6 +12,9 @@ properties:\n   reason:\n     type: string\n     enum:\n       - GATEWAY_DECLINED\n+      - CALLBACK_RETRIES_EXHAUSTED\n",
+      "content": "title: payment.payment.failed.v1\ntype: object\nrequired: [paymentId, orderId, reason, occurredAt]\nproperties:\n  paymentId:\n    type: string\n    format: uuid\n  orderId:\n    type: string\n    format: uuid\n  occurredAt:\n    type: string\n    format: date-time\n  reason:\n    type: string\n    enum:\n      - GATEWAY_DECLINED\n      - CALLBACK_RETRIES_EXHAUSTED\n"
+    },
+    {
+      "path": "payments/payment-service/diagrams/callback-retry.puml",
+      "status": "added",
+      "content": "@startuml\nautonumber\nГейтвей -> PaymentService: POST /callback\nPaymentService -> PaymentService: обработка\nPaymentService --> Гейтвей: 200\n@enduml\n"
+    }
+  ],
+  "discussions": [
+    {
+      "author": "Пётр Иванов",
+      "file": "payments/payment-service/callback-retry.md",
+      "resolved": false,
+      "body": "R3: при исчерпании попыток нужно ли параллельно писать в DLT? Пока договорились, что нет — только событие failed. Если бэкенд считает иначе, обсуждаем до реализации."
+    },
+    {
+      "author": "Мария Соколова",
+      "resolved": true,
+      "body": "Джиттер ±20% от задержки, считаем от номинальной (1s, 2s, 4s). Уточнила в R1."
+    }
+  ]
+}

@@ -1,43 +1,33 @@
 {
-  "_comment": [
-    "Вариант подключения: Jira приходит из внешнего MCP-коннектора, а не из нашего ts-сервера.",
-    "Применение: скопировать поверх settings.json (scripts/use-jira-mcp.sh) и выставить JIRA_PROVIDER=external в .env.",
-    "Тогда jira_get_issue в ai-tools не регистрируется, и агент пользуется инструментами внешнего сервера."
-  ],
-
   "mcpServers": {
-    "ai-tools": {
-      "type": "stdio",
-      "command": "bash",
-      "args": ["scripts/start-tools-server.sh"],
-      "env": { "JIRA_PROVIDER": "external" }
-    },
     "jira": {
-      "type": "stdio",
+      "httpUrl": "{env:JIRA_MCP_URL}",
+      "headers": {
+        "Authorization": "{env:JIRA_TOKEN}",
+        "JIRA_URL": "{env:JIRA_URL}"
+      },
+      "timeout": 30000,
+      "excludeTools": ["add_comment", "transition_issue", "update_issue", "create_issue"]
+    },
+    "confluence": {
+      "httpUrl": "{env:CONFLUENCE_MCP_URL}",
+      "headers": {
+        "Authorization": "{env:CONFLUENCE_TOKEN}",
+        "CONFLUENCE_URL": "{env:CONFLUENCE_URL}"
+      },
+      "timeout": 30000
+    },
+    "be-tools": {
       "command": "npx",
-      "args": ["-y", "@company/jira-mcp-server"],
-      "env": {
-        "JIRA_URL": "${JIRA_BASE_URL}",
-        "JIRA_TOKEN": "${JIRA_TOKEN}"
-      }
+      "args": ["tsx", "src/index.ts"],
+      "cwd": "tools-server",
+      "timeout": 60000,
+      "discoveryTimeoutMs": 60000,
+      "trust": false
     }
   },
-
-  "permissions": {
-    "defaultMode": "acceptEdits",
-    "allow": [
-      "mcp__ai-tools__docs_read",
-      "mcp__ai-tools__docs_search",
-      "mcp__ai-tools__tool_list",
-      "mcp__ai-tools__tool_template",
-      "mcp__ai-tools__tool_create",
-      "mcp__jira__get_issue",
-      "mcp__jira__search_issues"
-    ],
-    "deny": [
-      "mcp__jira__add_comment",
-      "mcp__jira__transition_issue",
-      "mcp__jira__update_issue"
-    ]
-  }
+  "mcp": {
+    "allowed": ["jira", "confluence", "be-tools"]
+  },
+  "$version": 4
 }

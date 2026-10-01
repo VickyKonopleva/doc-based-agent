@@ -5,6 +5,9 @@
 *.jks
 id_rsa
 
+# База знаний подключается снаружи; локальный клон не версионируем
+/ai-docs/
+
 # Node
 node_modules/
 tools-server/dist/
@@ -24,6 +27,7 @@ npm-debug.log*
 *.iws
 
 # GigaCode local overrides
+.gigacode/GIGACODE.local.md
 .gigacode/settings.local.json
 .gigacode/logs/
 

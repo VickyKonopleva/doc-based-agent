@@ -28,6 +28,25 @@ async function walk(dir: string, root: string, acc: string[] = []): Promise<stri
   return acc;
 }
 
+/** The base is external, so "missing" is a configuration problem worth explaining. */
+function missingBaseMessage(cfg: { aiDocsPath: string; aiDocsGitUrl: string; aiDocsRef: string }, err: unknown): string {
+  const reason = err instanceof Error ? err.message : String(err);
+  const lines = [
+    `База знаний недоступна по пути ${cfg.aiDocsPath}`,
+    `  причина: ${reason}`,
+    "",
+    "База знаний живёт вне этого репозитория. Варианты:",
+    "  1. указать путь к уже существующему чекауту:  AI_DOCS_PATH=/путь/к/ai-docs  в .env",
+  ];
+  if (cfg.aiDocsGitUrl) {
+    lines.push(`  2. склонировать из ${cfg.aiDocsGitUrl} (ветка ${cfg.aiDocsRef}):  ./scripts/sync-ai-docs.sh`);
+  } else {
+    lines.push("  2. задать AI_DOCS_GIT_URL в .env и выполнить ./scripts/sync-ai-docs.sh");
+  }
+  lines.push("", "Подробно: docs/connecting-ai-docs.md");
+  return lines.join("\n");
+}
+
 async function loadDocs(root: string): Promise<DocFile[]> {
   const rels = await walk(root, root);
   const files: DocFile[] = [];
@@ -109,7 +128,7 @@ export const docsSearch: ToolDefinition<{ query: string; type?: string; tag?: st
     try {
       docs = await loadDocs(root);
     } catch (err) {
-      return failure(`Cannot read ai-docs at ${root}: ${err instanceof Error ? err.message : String(err)}`);
+      return failure(missingBaseMessage(ctx.config, err));
     }
 
     const terms = input.query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
@@ -163,7 +182,7 @@ export const docsRead: ToolDefinition<{ path?: string; section?: string }> = def
     try {
       docs = await loadDocs(root);
     } catch (err) {
-      return failure(`Cannot read ai-docs at ${root}: ${err instanceof Error ? err.message : String(err)}`);
+      return failure(missingBaseMessage(ctx.config, err));
     }
 
     if (!input.path) {
@@ -174,7 +193,9 @@ export const docsRead: ToolDefinition<{ path?: string; section?: string }> = def
         : "";
       return text(
         `ai-docs root: ${root}\n${warning}\n` +
-          (index ? `=== INDEX.md ===\n${index.body.trim()}\n\n` : "") +
+          (index
+            ? `=== INDEX.md ===\n${index.body.trim()}\n\n`
+            : "(в корне базы нет INDEX.md — ориентируйся по каталогу ниже и docs_search)\n\n") +
           `=== Catalogue (${docs.length} documents) ===\n${catalogue}`,
         { root, count: docs.length, documents: docs.map((d) => ({ path: d.rel, id: d.data.id ?? null, type: d.data.type ?? null })) },
       );

@@ -17,7 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "inspect": "npx -y @modelcontextprotocol/inspector node dist/index.js",
     "clean": "rm -rf dist .cache",
-    "smoke": "npm run build && node scripts/smoke-test.mjs"
+    "smoke": "npm run build && node scripts/smoke-test.mjs",
+    "check": "node scripts/check-config.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

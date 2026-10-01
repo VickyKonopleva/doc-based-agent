@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Tools server (smoke)" type="js.build_tools.npm" nameIsGenerated="false">
+    <package-json value="$PROJECT_DIR$/tools-server/package.json" />
+    <command value="run" />
+    <scripts>
+      <script value="smoke" />
+    </scripts>
+    <node-interpreter value="project" />
+    <description value="Сквозная проверка сервера на фикстурах: база знаний, тикет, PR аналитики, создание инструмента." />
+    <method v="2" />
+  </configuration>
+</component>

@@ -3,6 +3,7 @@
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/tools-server/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/ai-docs" />
       <excludeFolder url="file://$MODULE_DIR$/tools-server/node_modules" />
       <excludeFolder url="file://$MODULE_DIR$/tools-server/dist" />
       <excludeFolder url="file://$MODULE_DIR$/tools-server/.cache" />

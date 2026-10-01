@@ -26,10 +26,12 @@ const transport = new StdioClientTransport({
   args: [path.join(SERVER_DIR, "dist", "index.js")],
   env: {
     ...process.env,
-    AI_DOCS_PATH: path.join(PROJECT_ROOT, "ai-docs"),
+    AI_DOCS_PATH: path.join(SERVER_DIR, "fixtures", "ai-docs"),
     TOOLS_DYNAMIC_DIR: path.join(SERVER_DIR, "dynamic"),
     JIRA_PROVIDER: "mock",
     JIRA_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "jira"),
+    SPEC_PROVIDER: "mock",
+    SPEC_MOCK_DIR: path.join(SERVER_DIR, "fixtures", "spec"),
     LOG_LEVEL: "warn",
   },
   stderr: "inherit",
@@ -42,7 +44,7 @@ console.log("\n== tools/list ==");
 const { tools } = await client.listTools();
 const names = tools.map((t) => t.name).sort();
 console.log(`  ${names.join(", ")}`);
-for (const expected of ["docs_read", "docs_search", "jira_get_issue", "tool_create", "tool_list", "tool_template", "create_merge_request"]) {
+for (const expected of ["docs_read", "docs_search", "jira_get_issue", "spec_get_pr", "spec_read_file", "tool_create", "tool_list", "tool_template", "create_merge_request"]) {
   check(names.includes(expected), `exposes ${expected}`);
 }
 check(
@@ -78,6 +80,42 @@ check(issueText.includes("payment-service"), "component reaches the agent");
 
 const badKey = await client.callTool({ name: "jira_get_issue", arguments: { ticket: "nonsense" } });
 check(badKey.isError === true, "jira_get_issue rejects a malformed key");
+
+console.log("\n== spec PR (mock) ==");
+const specPr = await client.callTool({ name: "spec_get_pr", arguments: { pr: "!456" } });
+const specText = textOf(specPr);
+check(specText.includes("Spec PR !456"), "spec_get_pr accepts !456 and normalises it");
+check(specText.includes("BACK-1234"), "the ticket mentioned in the spec PR is surfaced");
+check(specText.includes("callback-retry.md"), "spec files are listed");
+check(specText.includes("не решено"), "an unresolved discussion thread is flagged");
+check(!specText.includes("| R1 |"), "spec_get_pr does not inline file bodies");
+
+const specUrl = await client.callTool({
+  name: "spec_get_pr",
+  arguments: { pr: "https://git.company.ru/analytics/sa-specifications/-/merge_requests/456" },
+});
+check(textOf(specUrl).includes("Spec PR !456"), "spec_get_pr accepts a full MR url");
+
+const specFile = await client.callTool({
+  name: "spec_read_file",
+  arguments: { pr: 456, path: "payments/payment-service/callback-retry.md" },
+});
+const specFileText = textOf(specFile);
+check(specFileText.includes("| R1 |"), "spec_read_file returns the full requirements table");
+check(specFileText.includes("CALLBACK_RETRIES_EXHAUSTED"), "requirement details reach the agent");
+
+const specDiff = await client.callTool({
+  name: "spec_read_file",
+  arguments: { pr: 456, path: "events/payment-failed-v1.yaml", mode: "diff" },
+});
+check(textOf(specDiff).includes("+      - CALLBACK_RETRIES_EXHAUSTED"), "spec_read_file resolves a path suffix and returns a diff");
+
+const specMissing = await client.callTool({ name: "spec_read_file", arguments: { pr: 456, path: "nope.md" } });
+check(specMissing.isError === true, "spec_read_file reports an unknown file as an error");
+check(textOf(specMissing).includes("callback-retry.md"), "the error lists the files that are in the PR");
+
+const specBadPr = await client.callTool({ name: "spec_get_pr", arguments: { pr: "abc" } });
+check(specBadPr.isError === true, "spec_get_pr rejects a malformed PR reference");
 
 console.log("\n== self-extension ==");
 const created = await client.callTool({
